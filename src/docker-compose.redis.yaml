@@ -1,0 +1,36 @@
+
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: convogent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  app:
+    image: node:20-alpine
+    container_name: your-app
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: npm start
+
+volumes:
+  redis-data:

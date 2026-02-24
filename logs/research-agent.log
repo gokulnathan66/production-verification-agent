@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/gokulnathanb/Projects/mine/a2a-multi-agent/src/research_agent/agent.py", line 5, in <module>
+    from fastapi import FastAPI, Request
+ModuleNotFoundError: No module named 'fastapi'

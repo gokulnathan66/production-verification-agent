@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  code-logic-agent:
+    build:
+      context: ./code_logic_agent
+      dockerfile: ../Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+    networks:
+      - a2a-network
+
+  research-agent:
+    build:
+      context: ./research_agent
+      dockerfile: ../Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+    networks:
+      - a2a-network
+
+  test-run-agent:
+    build:
+      context: ./test_run_agents
+      dockerfile: ../Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - PORT=8004
+    networks:
+      - a2a-network
+
+  validation-agent:
+    build:
+      context: ./validation_agent
+      dockerfile: ../Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+    networks:
+      - a2a-network
+
+  orchestrator-agent:
+    build:
+      context: ./orchestorator_agent
+      dockerfile: ../Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - CODE_LOGIC_AGENT_URL=http://code-logic-agent:8001
+      - RESEARCH_AGENT_URL=http://research-agent:8003
+      - TEST_RUN_AGENT_URL=http://test-run-agent:8004
+      - VALIDATION_AGENT_URL=http://validation-agent:8005
+    depends_on:
+      - code-logic-agent
+      - research-agent
+      - test-run-agent
+      - validation-agent
+    networks:
+      - a2a-network
+
+  orchestrator:
+    build:
+      context: ./orchestorator
+      dockerfile: ./orchestrator/Dockerfile
+    ports:
+      - "8006:8006"
+    environment:
+      - PORT=8000
+      - CODE_LOGIC_AGENT_URL=http://code-logic-agent:8001
+      - RESEARCH_AGENT_URL=http://research-agent:8003
+      - TEST_RUN_AGENT_URL=http://test-run-agent:8004
+      - VALIDATION_AGENT_URL=http://validation-agent:8005
+    depends_on:
+      - code-logic-agent
+      - research-agent
+      - test-run-agent
+      - validation-agent
+    networks:
+      - a2a-network
+
+networks:
+  a2a-network:
+    driver: bridge
