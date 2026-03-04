@@ -1,6 +1,6 @@
 """
-Research Agent - A2A compliant
-Real grep-based code search with AST parsing and file system support
+Improved Research Agent - A2A compliant
+Real grep-based search, AST-aware function discovery, file system support
 """
 from fastapi import FastAPI, Request
 from typing import Dict, Any, List, Optional
@@ -46,25 +46,40 @@ AGENT_CARD = {
 }
 
 
-class CodeResearcher:
+class ImprovedResearcher:
     """Real grep-based research with AST support"""
 
-    def grep_search(self, pattern: str, text: str = None, directory: str = None, context_lines: int = 2) -> List[Dict[str, Any]]:
+    def grep_search(
+        self,
+        pattern: str,
+        text: str = None,
+        directory: str = None,
+        file_pattern: str = "*.py",
+        context_lines: int = 2
+    ) -> List[Dict[str, Any]]:
         """Real grep search using ripgrep or grep"""
+        
+        # If text provided, search in text
         if text:
             return self._search_in_text(pattern, text, context_lines)
+        
+        # If directory provided, use actual grep
         if directory and os.path.isdir(directory):
-            return self._search_in_directory(pattern, directory, context_lines)
+            return self._search_in_directory(pattern, directory, file_pattern, context_lines)
+        
         return []
 
     def _search_in_text(self, pattern: str, text: str, context: int) -> List[Dict[str, Any]]:
         """Search pattern in text with context"""
         results = []
         lines = text.split('\n')
+        
         for i, line in enumerate(lines):
             if re.search(pattern, line, re.IGNORECASE):
+                # Get context
                 start = max(0, i - context)
                 end = min(len(lines), i + context + 1)
+                
                 results.append({
                     "line": i + 1,
                     "content": line.strip(),
@@ -72,65 +87,134 @@ class CodeResearcher:
                     "context_after": lines[i+1:end],
                     "match": pattern
                 })
+        
         return results
 
-    def _search_in_directory(self, pattern: str, directory: str, context: int) -> List[Dict[str, Any]]:
+    def _search_in_directory(
+        self,
+        pattern: str,
+        directory: str,
+        file_pattern: str,
+        context: int
+    ) -> List[Dict[str, Any]]:
         """Use ripgrep or grep for directory search"""
+        results = []
+        
+        # Try ripgrep first (faster)
         try:
+            cmd = [
+                'rg',
+                pattern,
+                directory,
+                '--glob', file_pattern,
+                '--context', str(context),
+                '--line-number',
+                '--no-heading',
+                '--color', 'never'
+            ]
+            
             result = subprocess.run(
-                ['rg', pattern, directory, '--context', str(context), '--line-number', '--no-heading', '--color', 'never'],
-                capture_output=True, text=True, timeout=30
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
             )
+            
             if result.returncode == 0:
                 return self._parse_grep_output(result.stdout)
+                
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         
+        # Fallback to grep
         try:
+            cmd = [
+                'grep',
+                '-r',
+                '-n',
+                '-C', str(context),
+                pattern,
+                directory,
+                '--include', file_pattern
+            ]
+            
             result = subprocess.run(
-                ['grep', '-r', '-n', '-C', str(context), pattern, directory],
-                capture_output=True, text=True, timeout=30
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
             )
-            if result.returncode in [0, 1]:
+            
+            if result.returncode in [0, 1]:  # 0=found, 1=not found
                 return self._parse_grep_output(result.stdout)
+                
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
-        return []
+        
+        return results
 
     def _parse_grep_output(self, output: str) -> List[Dict[str, Any]]:
         """Parse grep/ripgrep output"""
         results = []
-        for line in output.split('\n'):
+        lines = output.split('\n')
+        
+        for line in lines:
             if not line.strip() or line.startswith('--'):
                 continue
+            
+            # Parse format: file:line:content
             parts = line.split(':', 2)
             if len(parts) >= 3:
-                results.append({"file": parts[0], "line": parts[1], "content": parts[2].strip()})
+                results.append({
+                    "file": parts[0],
+                    "line": parts[1],
+                    "content": parts[2].strip()
+                })
+        
         return results
 
-    def find_functions(self, code: str, language: str = "python") -> List[Dict[str, Any]]:
+    def find_functions_ast(self, code: str, language: str = "python") -> List[Dict[str, Any]]:
         """Use AST for accurate function discovery (Python only)"""
+        
         if language != "python":
             return self._find_functions_regex(code, language)
         
         try:
             tree = ast.parse(code)
             functions = []
+            
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
-                    args = [arg.arg for arg in node.args.args]
+                    # Extract full signature
+                    args = []
+                    for arg in node.args.args:
+                        args.append(arg.arg)
+                    
+                    # Get decorators
                     decorators = [ast.unparse(d) for d in node.decorator_list]
+                    
+                    # Check if async
+                    is_async = isinstance(node, ast.AsyncFunctionDef)
+                    
+                    # Get return type hint
+                    return_type = ast.unparse(node.returns) if node.returns else None
+                    
                     functions.append({
                         "name": node.name,
                         "line": node.lineno,
                         "end_line": node.end_lineno,
                         "args": args,
                         "decorators": decorators,
+                        "is_async": is_async,
+                        "return_type": return_type,
                         "docstring": ast.get_docstring(node),
                         "complexity": self._estimate_complexity(node)
                     })
+            
             return functions
+            
         except SyntaxError:
+            # Fallback to regex
             return self._find_functions_regex(code, language)
 
     def _find_functions_regex(self, code: str, language: str) -> List[Dict[str, Any]]:
@@ -141,75 +225,124 @@ class CodeResearcher:
             "go": r'func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(',
             "rust": r'(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*[<(]'
         }
+        
         pattern = patterns.get(language, r'def\s+(\w+)\s*\(')
         results = []
         lines = code.split('\n')
+        
         for i, line in enumerate(lines, 1):
             match = re.search(pattern, line)
             if match:
                 func_name = next((g for g in match.groups() if g), None)
                 if func_name:
-                    results.append({"name": func_name, "line": i, "signature": line.strip()})
+                    results.append({
+                        "name": func_name,
+                        "line": i,
+                        "signature": line.strip()
+                    })
+        
         return results
 
     def _estimate_complexity(self, node: ast.FunctionDef) -> int:
         """Estimate cyclomatic complexity"""
         complexity = 1
+        
         for child in ast.walk(node):
             if isinstance(child, (ast.If, ast.While, ast.For, ast.ExceptHandler)):
                 complexity += 1
             elif isinstance(child, ast.BoolOp):
                 complexity += len(child.values) - 1
+        
         return complexity
 
-    def find_classes(self, code: str, language: str = "python") -> List[Dict[str, Any]]:
-        """Find class definitions"""
-        patterns = {
-            "python": r'class\s+(\w+)',
-            "javascript": r'class\s+(\w+)',
-            "java": r'class\s+(\w+)',
-            "go": r'type\s+(\w+)\s+struct',
-            "rust": r'struct\s+(\w+)'
-        }
-        pattern = patterns.get(language, patterns["python"])
-        results = []
-        lines = code.split('\n')
-        for i, line in enumerate(lines, 1):
-            match = re.search(pattern, line)
-            if match:
-                results.append({"name": match.group(1), "line": i, "definition": line.strip()})
-        return results
-
-    def find_imports(self, code: str, language: str = "python") -> List[str]:
-        """Find import statements"""
+    def find_call_sites(self, code: str, function_name: str, language: str = "python") -> List[Dict[str, Any]]:
+        """Find where a function is called"""
+        
         if language == "python":
             try:
                 tree = ast.parse(code)
-                imports = set()
+                calls = []
+                
                 for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        for alias in node.names:
-                            imports.add(alias.name)
-                    elif isinstance(node, ast.ImportFrom) and node.module:
-                        imports.add(node.module)
-                return sorted(list(imports))
+                    if isinstance(node, ast.Call):
+                        if isinstance(node.func, ast.Name) and node.func.id == function_name:
+                            calls.append({
+                                "line": node.lineno,
+                                "type": "direct_call"
+                            })
+                        elif isinstance(node.func, ast.Attribute) and node.func.attr == function_name:
+                            calls.append({
+                                "line": node.lineno,
+                                "type": "method_call"
+                            })
+                
+                return calls
             except:
                 pass
         
+        # Fallback: regex search
+        pattern = rf'\b{function_name}\s*\('
+        return self._search_in_text(pattern, code, 0)
+
+    def extract_imports(self, code: str, language: str = "python") -> Dict[str, List[str]]:
+        """Extract imports with categorization"""
+        
+        if language == "python":
+            try:
+                tree = ast.parse(code)
+                imports = {
+                    "stdlib": [],
+                    "third_party": [],
+                    "local": []
+                }
+                
+                stdlib_modules = {'os', 'sys', 're', 'json', 'datetime', 'pathlib', 'typing', 'collections'}
+                
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            module = alias.name.split('.')[0]
+                            if module in stdlib_modules:
+                                imports["stdlib"].append(alias.name)
+                            else:
+                                imports["third_party"].append(alias.name)
+                    
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module:
+                            module = node.module.split('.')[0]
+                            if module in stdlib_modules:
+                                imports["stdlib"].append(node.module)
+                            elif node.level > 0:  # relative import
+                                imports["local"].append(node.module or ".")
+                            else:
+                                imports["third_party"].append(node.module)
+                
+                return imports
+            except:
+                pass
+        
+        # Fallback
+        return {"all": self._extract_imports_regex(code, language)}
+
+    def _extract_imports_regex(self, code: str, language: str) -> List[str]:
+        """Regex-based import extraction"""
         patterns = {
             "python": r'(?:from\s+([\w.]+)\s+)?import\s+([\w., ]+)',
             "javascript": r'import\s+.*from\s+[\'"](.+)[\'"]',
             "java": r'import\s+([\w.]+)',
             "go": r'import\s+[\'"](.+)[\'"]'
         }
+        
         pattern = patterns.get(language, patterns["python"])
         imports = set()
+        
         for match in re.finditer(pattern, code):
             imports.update(g for g in match.groups() if g)
+        
         return sorted(list(imports))
 
 
-researcher = CodeResearcher()
+researcher = ImprovedResearcher()
 
 
 @app.get("/.well-known/agent-card")
@@ -291,7 +424,7 @@ async def create_task(params: Dict[str, Any]) -> Dict[str, Any]:
             directory = data.get("directory")
 
     # Perform research based on type
-    if research_type == "grep" or research_type == "pattern":
+    if research_type == "grep":
         pattern = query.split("search for:")[-1].strip() if "search for:" in query else query
         matches = researcher.grep_search(pattern, code_text, directory)
         
@@ -302,28 +435,40 @@ async def create_task(params: Dict[str, Any]) -> Dict[str, Any]:
         data_result = {"pattern": pattern, "matches": matches}
 
     elif research_type == "functions":
-        functions = researcher.find_functions(code_text, language)
-        classes = researcher.find_classes(code_text, language)
-        imports = researcher.find_imports(code_text, language)
+        functions = researcher.find_functions_ast(code_text, language)
         
-        result_text = f"""
-🔍 Research Results
-
-📦 Functions: {len(functions)}
-🏛️ Classes: {len(classes)}
-📚 Imports: {len(imports)}
-
-Functions Found:
-"""
-        for func in functions[:10]:
-            result_text += f"  • {func['name']} (line {func['line']}"
+        result_text = f"📦 Functions Found: {len(functions)}\n\n"
+        for func in functions[:15]:
+            result_text += f"• {func['name']} (line {func['line']}"
             if 'complexity' in func:
                 result_text += f", complexity: {func['complexity']}"
             result_text += ")\n"
             if func.get('docstring'):
-                result_text += f"    {func['docstring'][:60]}...\n"
+                result_text += f"  {func['docstring'][:60]}...\n"
         
-        data_result = {"functions": functions, "classes": classes, "imports": imports, "language": language}
+        data_result = {"functions": functions, "language": language}
+
+    elif research_type == "calls":
+        func_name = query.split("calls to")[-1].strip() if "calls to" in query else query
+        calls = researcher.find_call_sites(code_text, func_name, language)
+        
+        result_text = f"📞 Calls to '{func_name}': {len(calls)}\n\n"
+        for call in calls:
+            result_text += f"Line {call['line']}: {call.get('type', 'call')}\n"
+        
+        data_result = {"function": func_name, "calls": calls}
+
+    elif research_type == "imports":
+        imports = researcher.extract_imports(code_text, language)
+        
+        result_text = "📚 Imports:\n\n"
+        for category, modules in imports.items():
+            if modules:
+                result_text += f"{category.title()}: {len(modules)}\n"
+                for mod in modules[:10]:
+                    result_text += f"  • {mod}\n"
+        
+        data_result = {"imports": imports, "language": language}
 
     else:
         result_text = f"❌ Unknown research type: {research_type}"
@@ -377,6 +522,6 @@ async def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"🚀 Starting Research Agent: {AGENT_ID}")
+    print(f"🚀 Starting Improved Research Agent: {AGENT_ID}")
     print(f"📍 AgentCard: http://{HOST}:{PORT}/.well-known/agent-card")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
