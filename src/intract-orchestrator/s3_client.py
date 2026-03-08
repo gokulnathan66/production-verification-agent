@@ -32,8 +32,6 @@ class S3ArtifactManager:
         self.s3_client = boto3.client(
             's3',
             region_name=self.region,
-            aws_access_key_id=access_key or os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=secret_key or os.getenv("AWS_SECRET_ACCESS_KEY")
         )
 
         if not self.bucket_name:

@@ -3,60 +3,91 @@ version: '3.8'
 services:
   code-logic-agent:
     build:
-      context: ./code_logic_agent
-      dockerfile: ../Dockerfile.agent
+      context: ..
+      dockerfile: src/Dockerfile.agent
+      args:
+        AGENT_DIR: code_logic_agent
     ports:
       - "8001:8001"
     environment:
       - PORT=8001
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     networks:
       - a2a-network
 
   research-agent:
     build:
-      context: ./research_agent
-      dockerfile: ../Dockerfile.agent
+      context: ..
+      dockerfile: src/Dockerfile.agent
+      args:
+        AGENT_DIR: research_agent
     ports:
       - "8003:8003"
     environment:
       - PORT=8003
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     networks:
       - a2a-network
 
   test-run-agent:
     build:
-      context: ./test_run_agents
-      dockerfile: ../Dockerfile.agent
+      context: ..
+      dockerfile: src/Dockerfile.agent
+      args:
+        AGENT_DIR: test_run_agents
     ports:
       - "8004:8004"
     environment:
       - PORT=8004
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     networks:
       - a2a-network
 
   validation-agent:
     build:
-      context: ./validation_agent
-      dockerfile: ../Dockerfile.agent
+      context: ..
+      dockerfile: src/Dockerfile.agent
+      args:
+        AGENT_DIR: validation_agent
     ports:
       - "8005:8005"
     environment:
       - PORT=8005
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     networks:
       - a2a-network
 
   orchestrator-agent:
     build:
-      context: ./orchestorator_agent
-      dockerfile: ../Dockerfile.agent
+      context: ..
+      dockerfile: src/Dockerfile.agent
+      args:
+        AGENT_DIR: orchestorator_agent
     ports:
       - "8000:8000"
     environment:
       - PORT=8000
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - CODE_LOGIC_AGENT_URL=http://code-logic-agent:8001
       - RESEARCH_AGENT_URL=http://research-agent:8003
       - TEST_RUN_AGENT_URL=http://test-run-agent:8004
       - VALIDATION_AGENT_URL=http://validation-agent:8005
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     depends_on:
       - code-logic-agent
       - research-agent
@@ -65,23 +96,21 @@ services:
     networks:
       - a2a-network
 
-  orchestrator:
+  intract-orchestrator:
     build:
-      context: ./orchestorator
-      dockerfile: ./orchestrator/Dockerfile.agent
+      context: ..
+      dockerfile: src/intract-orchestrator/Dockerfile
     ports:
       - "8006:8006"
     environment:
-      - PORT=8000
-      - CODE_LOGIC_AGENT_URL=http://code-logic-agent:8001
-      - RESEARCH_AGENT_URL=http://research-agent:8003
-      - TEST_RUN_AGENT_URL=http://test-run-agent:8004
-      - VALIDATION_AGENT_URL=http://validation-agent:8005
+      - PORT=8006
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     depends_on:
-      - code-logic-agent
-      - research-agent
-      - test-run-agent
-      - validation-agent
+      - orchestrator-agent
     networks:
       - a2a-network
 

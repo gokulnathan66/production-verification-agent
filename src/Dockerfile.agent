@@ -1,10 +1,15 @@
 FROM python:3.11-slim
 
+ARG AGENT_DIR
 WORKDIR /app
 
-COPY requirements.txt .
+# Copy shared module
+COPY src/shared /app/shared
+
+# Copy agent files
+COPY src/${AGENT_DIR}/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY agent.py .
+COPY src/${AGENT_DIR}/agent.py .
 
 CMD ["python", "agent.py"]

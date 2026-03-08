@@ -1,0 +1,29 @@
+# A2A Multi-Agent System - Complete Requirements
+# Install all dependencies: pip install -r requirements.txt
+
+# Core A2A SDK with HTTP server support
+a2a-sdk[http-server]>=0.1.0
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# HTTP Client
+httpx>=0.25.0
+
+# AWS S3
+boto3>=1.28.0
+
+# Database
+databases[aiosqlite]>=0.8.0
+aiosqlite>=0.19.0
+
+# File Upload
+python-multipart>=0.0.6
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.3

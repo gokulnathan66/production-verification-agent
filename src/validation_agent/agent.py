@@ -100,7 +100,7 @@ class Validator:
             (r'token\s*=\s*["\']([^"\']+)["\']',     "Hardcoded token"),
         ],
         "sql_injection": [
-            (r'execute\(["\''].*%s.*["\']\s*%',       "Potential SQL injection"),
+            (r'execute\(["\'].*%s.*["\']\s*%',       "Potential SQL injection"),
             (r'\.format\(.*\).*execute',               "SQL query with string format"),
         ],
         "command_injection": [

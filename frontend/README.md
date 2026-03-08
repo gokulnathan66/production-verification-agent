@@ -77,8 +77,6 @@ Create `.env` file in project root:
 
 ```bash
 # AWS S3 Configuration
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
 AWS_REGION=us-east-1
 S3_BUCKET_NAME=a2a-multi-agent-artifacts
 

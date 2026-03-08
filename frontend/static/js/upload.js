@@ -87,7 +87,7 @@ function initializeUploadZone() {
  */
 function handleFileSelect(file) {
   // Validate file type
-  const allowedTypes = ['.py', '.js', '.java', '.go', '.rs', '.txt', '.json', '.yaml', '.yml', '.md'];
+  const allowedTypes = ['.py', '.js', '.java', '.go', '.rs', '.txt', '.json', '.yaml', '.yml', '.md', '.zip'];
   const fileExt = '.' + file.name.split('.').pop().toLowerCase();
 
   if (!allowedTypes.includes(fileExt)) {
