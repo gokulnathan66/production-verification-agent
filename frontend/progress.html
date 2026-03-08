@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Progress | A2A Multi-Agent Dashboard</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <div class="nav-container">
+    <div class="container">
+      <nav class="nav">
+        <a href="/" class="nav-brand">
+          <div class="nav-brand-icon">🤖</div>
+          <span>A2A Dashboard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">📁 Upload</a></li>
+          <li><a href="/tasks.html" class="nav-link">📋 Tasks</a></li>
+          <li><a href="/logs.html" class="nav-link">📜 Logs</a></li>
+          <li><a href="/progress.html" class="nav-link active">⚡ Progress</a></li>
+        </ul>
+
+        <div class="nav-status">
+          <span class="health-indicator healthy"></span>
+          <span>System Online</span>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="container">
+    <div class="page-header">
+      <h1 class="page-title">Live Progress Tracker</h1>
+      <p class="page-subtitle">Real-time agent status and metrics</p>
+    </div>
+
+    <!-- Stream Status -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-xl); padding: var(--space-md); background: var(--color-bg-elevated); border-radius: var(--radius-md); border: 1px solid var(--color-border-primary);">
+      <div id="stream-status" style="display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px;">
+        <span class="health-indicator healthy"></span>
+        <span>Stream Connected</span>
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 12px; color: var(--color-text-tertiary);">
+        Last update: <span id="last-update">-</span>
+      </div>
+    </div>
+
+    <!-- Global Stats -->
+    <div class="global-stats" id="global-stats">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total">0</div>
+        <div class="stat-label">Total Tasks</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-value" id="stat-active" style="color: var(--color-info);">0</div>
+        <div class="stat-label">Active Tasks</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-value" id="stat-completed" style="color: var(--color-success);">0</div>
+        <div class="stat-label">Completed</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-value" id="stat-errors" style="color: var(--color-error);">0</div>
+        <div class="stat-label">Errors</div>
+      </div>
+    </div>
+
+    <!-- Section Header -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg);">
+      <h2 style="font-size: var(--font-size-xl); margin: 0;">Agent Status</h2>
+      <span style="font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-text-tertiary);">
+        <span id="agent-count">0</span> agents
+      </span>
+    </div>
+
+    <!-- Agent Grid -->
+    <div class="agent-grid" id="agent-grid">
+      <div class="empty-state" style="grid-column: 1 / -1;">
+        <div class="empty-state-icon">🤖</div>
+        <div class="empty-state-title">Waiting for agent data...</div>
+        <div class="empty-state-text">Real-time agent status will appear here</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/utils.js"></script>
+  <script src="/static/js/progress.js"></script>
+</body>
+</html>

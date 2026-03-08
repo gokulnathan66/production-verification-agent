@@ -1,100 +1,138 @@
 """
-Test Run Agent - A2A compliant
+Test Run Agent - Official A2A SDK compliant
 Generates meaningful tests with Docker sandboxing and coverage analysis
 """
-from fastapi import FastAPI, Request
-from typing import Dict, Any, List
-import uuid
-from datetime import datetime
+
+import ast
 import os
 import re
 import subprocess
 import tempfile
-import ast
-from pathlib import Path
+import uuid
+from typing import Any, Dict, List
 
-app = FastAPI(title="Test Run Agent")
+import uvicorn
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.events import EventQueue
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
+    Artifact,
+    DataPart,
+    Part,
+    TextPart,
+)
 
-TASKS = {}
+# ─── Config ────────────────────────────────────────────────────────────────────
 
-AGENT_ID = os.getenv("AGENT_ID", "test-run-agent")
-PORT = int(os.getenv("PORT", "8004"))
-HOST = os.getenv("HOST", "localhost")
+AGENT_ID   = os.getenv("AGENT_ID", "test-run-agent")
+PORT       = int(os.getenv("PORT", "8004"))
+HOST       = os.getenv("HOST", "localhost")
 USE_DOCKER = os.getenv("USE_DOCKER", "false").lower() == "true"
 
-AGENT_CARD = {
-    "agentId": AGENT_ID,
-    "name": "Test Run Agent",
-    "description": "Generates meaningful tests with optional Docker sandboxing",
-    "version": "2.0.0",
-    "endpoints": {
-        "rpc": f"http://{HOST}:{PORT}/a2a",
-        "health": f"http://{HOST}:{PORT}/health"
-    },
-    "capabilities": {
-        "modalities": ["text", "file"],
-        "skills": [
-            "intelligent_test_generation",
-            "test_execution",
-            "unit_testing",
-            "assertion_generation"
-        ],
-        "languages": ["python", "javascript"],
-        "testFrameworks": ["pytest", "unittest", "jest"],
-        "sandboxing": "docker" if USE_DOCKER else "subprocess"
-    },
-    "auth": {"scheme": "none", "required": False}
-}
+# ─── Agent Card ────────────────────────────────────────────────────────────────
 
+agent_card = AgentCard(
+    name="Test Run Agent",
+    description="Generates meaningful tests with optional Docker sandboxing and coverage analysis",
+    url=f"http://{HOST}:{PORT}/",
+    version="2.0.0",
+    defaultInputModes=["text"],
+    defaultOutputModes=["text", "data"],
+    capabilities=AgentCapabilities(streaming=False),
+    skills=[
+        AgentSkill(
+            id="intelligent_test_generation",
+            name="Intelligent Test Generation",
+            description="Generate pytest/unittest tests from Python AST analysis",
+            tags=["testing", "pytest", "ast", "generation"],
+            examples=["Generate tests for this Python module"],
+        ),
+        AgentSkill(
+            id="test_execution",
+            name="Test Execution",
+            description="Execute generated tests and return pass/fail results",
+            tags=["execution", "pytest", "results"],
+            examples=["Run tests for this code and show results"],
+        ),
+        AgentSkill(
+            id="unit_testing",
+            name="Unit Testing",
+            description="Create unit tests with mocks and edge case coverage",
+            tags=["unit", "mock", "edge-cases"],
+            examples=["Write unit tests with mocks for this function"],
+        ),
+        AgentSkill(
+            id="assertion_generation",
+            name="Assertion Generation",
+            description="Generate meaningful assertions based on return types and raises",
+            tags=["assertions", "validation"],
+            examples=["Generate assertions for all functions in this file"],
+        ),
+    ],
+)
+
+# ─── TestGenerator ─────────────────────────────────────────────────────────────
 
 class TestGenerator:
     """Intelligent test generation with real assertions"""
 
     def analyze_function(self, func_node: ast.FunctionDef) -> Dict[str, Any]:
-        """Analyze function to generate meaningful tests"""
-        info = {
+        info: Dict[str, Any] = {
             "name": func_node.name,
             "args": [arg.arg for arg in func_node.args.args],
             "returns": None,
             "raises": [],
-            "branches": 0
+            "branches": 0,
         }
-        
+
         if func_node.returns:
             info["returns"] = ast.unparse(func_node.returns)
-        
+
         for node in ast.walk(func_node):
             if isinstance(node, ast.Return) and node.value:
                 if not info["returns"]:
                     info["returns"] = "inferred"
             elif isinstance(node, ast.Raise):
-                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                if (
+                    isinstance(node.exc, ast.Call)
+                    and isinstance(node.exc.func, ast.Name)
+                ):
                     info["raises"].append(node.exc.func.id)
             elif isinstance(node, (ast.If, ast.For, ast.While)):
                 info["branches"] += 1
-        
+
         return info
 
-    def generate_python_tests(self, code: str, function_name: str = None) -> str:
-        """Generate pytest tests for Python code"""
+    def generate_python_tests(self, code: str) -> str:
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
             return f"# Syntax error: {e}"
 
-        functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and not node.name.startswith('_')]
+        functions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and not node.name.startswith("_")
+        ]
 
         if not functions:
-            return "# No functions found to test"
+            return "# No public functions found to test"
 
-        test_code = '''"""Auto-generated tests"""
-import pytest
-from unittest.mock import Mock
-
-'''
-        test_code += "# Original code\n"
-        test_code += code + "\n\n"
-        test_code += "# Generated tests\n\n"
+        test_code = (
+            '"""Auto-generated tests"""\n'
+            "import pytest\n"
+            "from unittest.mock import Mock\n\n"
+            "# ── Original code ─────────────────────────────────────────────\n"
+            + code
+            + "\n\n"
+            "# ── Generated tests ───────────────────────────────────────────\n\n"
+        )
 
         for func_node in functions:
             info = self.analyze_function(func_node)
@@ -103,313 +141,255 @@ from unittest.mock import Mock
         return test_code
 
     def _generate_test_for_function(self, info: Dict[str, Any]) -> str:
-        """Generate test cases for a specific function"""
         func_name = info["name"]
-        args = info["args"]
-        
-        test_code = f"\nclass Test{func_name.title()}:\n"
-        test_code += f'    """Tests for {func_name}"""\n\n'
-        
-        # Test 1: Existence
-        test_code += f"    def test_{func_name}_exists(self):\n"
-        test_code += f"        assert callable({func_name})\n\n"
-        
-        # Test 2: Return value
+        args      = info["args"]
+
+        lines = [
+            f"\nclass Test{func_name.title()}:",
+            f'    """Tests for {func_name}"""',
+            "",
+            # ── existence ──────────────────────────────────────────────────
+            f"    def test_{func_name}_exists(self):",
+            f"        assert callable({func_name})",
+            "",
+        ]
+
+        # ── return value ───────────────────────────────────────────────────
         if info["returns"]:
-            test_code += f"    def test_{func_name}_returns_value(self):\n"
-            test_code += f"        result = {func_name}("
-            test_code += ", ".join(["Mock()"] * len(args))
-            test_code += ")\n"
-            test_code += f"        assert result is not None\n\n"
-        
-        # Test 3: Exception handling
-        if info["raises"]:
-            for exc in set(info["raises"]):
-                test_code += f"    def test_{func_name}_raises_{exc.lower()}(self):\n"
-                test_code += f"        with pytest.raises({exc}):\n"
-                test_code += f"            {func_name}("
-                test_code += ", ".join(['"invalid"'] * len(args))
-                test_code += ")\n\n"
-        
-        # Test 4: Edge cases
+            mock_args = ", ".join(["Mock()"] * len(args))
+            lines += [
+                f"    def test_{func_name}_returns_value(self):",
+                f"        result = {func_name}({mock_args})",
+                f"        assert result is not None",
+                "",
+            ]
+
+        # ── raises ─────────────────────────────────────────────────────────
+        for exc in set(info["raises"]):
+            invalid_args = ", ".join(['"invalid"'] * len(args))
+            lines += [
+                f"    def test_{func_name}_raises_{exc.lower()}(self):",
+                f"        with pytest.raises({exc}):",
+                f"            {func_name}({invalid_args})",
+                "",
+            ]
+
+        # ── None edge case ─────────────────────────────────────────────────
         if args:
-            test_code += f"    def test_{func_name}_with_none(self):\n"
-            test_code += f"        # Test with None values\n"
-            test_code += f"        try:\n"
-            test_code += f"            {func_name}("
-            test_code += ", ".join(["None"] * len(args))
-            test_code += ")\n"
-            test_code += f"        except (TypeError, ValueError, AttributeError):\n"
-            test_code += f"            pass  # Expected\n\n"
-        
-        return test_code
+            none_args = ", ".join(["None"] * len(args))
+            lines += [
+                f"    def test_{func_name}_with_none(self):",
+                f"        try:",
+                f"            {func_name}({none_args})",
+                f"        except (TypeError, ValueError, AttributeError):",
+                f"            pass  # expected",
+                "",
+            ]
+
+        return "\n".join(lines) + "\n"
 
     def run_python_tests(self, test_code: str) -> Dict[str, Any]:
-        """Execute Python tests"""
+        test_file: str | None = None
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False
+            ) as f:
                 f.write(test_code)
                 test_file = f.name
 
             try:
-                result = subprocess.run(
-                    ['python', '-m', 'pytest', test_file, '-v', '--tb=short'],
+                res = subprocess.run(
+                    ["python", "-m", "pytest", test_file, "-v", "--tb=short"],
                     capture_output=True,
                     text=True,
                     timeout=30,
-                    env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}
+                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
                 )
-
                 return {
-                    "status": "passed" if result.returncode == 0 else "failed",
-                    "output": result.stdout,
-                    "errors": result.stderr,
-                    "returncode": result.returncode
+                    "status": "passed" if res.returncode == 0 else "failed",
+                    "output": res.stdout,
+                    "errors": res.stderr,
+                    "returncode": res.returncode,
                 }
-
             except FileNotFoundError:
-                result = subprocess.run(
-                    ['python', test_file],
+                res = subprocess.run(
+                    ["python", test_file],
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
                 )
-
                 return {
                     "status": "executed",
-                    "output": result.stdout,
-                    "errors": result.stderr,
-                    "note": "pytest not available"
+                    "output": res.stdout,
+                    "errors": res.stderr,
+                    "note": "pytest not available, ran with python directly",
                 }
 
         except subprocess.TimeoutExpired:
-            return {"status": "timeout", "error": "Test execution timeout"}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"status": "timeout", "error": "Test execution timed out"}
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
         finally:
-            if 'test_file' in locals():
+            if test_file:
                 try:
                     os.unlink(test_file)
-                except:
+                except OSError:
                     pass
 
     def generate_javascript_tests(self, code: str) -> str:
-        """Generate Jest tests for JavaScript"""
-        func_pattern = r'(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)'
-        functions = re.findall(func_pattern, code)
+        func_pattern = (
+            r"(?:function\s+(\w+)|const\s+(\w+)\s*=\s*"
+            r"(?:async\s*)?\([^)]*\)\s*=>)"
+        )
+        functions  = re.findall(func_pattern, code)
         func_names = [f[0] or f[1] for f in functions if f[0] or f[1]]
 
         if not func_names:
-            return "// No functions found"
+            return "// No functions found to test"
 
-        test_code = "// Auto-generated tests\n\n"
-        test_code += "// Original code\n"
-        test_code += code + "\n\n"
-        test_code += "describe('Generated Tests', () => {\n"
+        lines = [
+            "// Auto-generated Jest tests",
+            "",
+            "// Original code",
+            code,
+            "",
+            "describe('Generated Tests', () => {",
+        ]
 
         for func in func_names:
-            test_code += f"""
-  describe('{func}', () => {{
-    test('should exist and be callable', () => {{
-      expect(typeof {func}).toBe('function');
-    }});
+            lines += [
+                f"  describe('{func}', () => {{",
+                f"    test('should exist and be callable', () => {{",
+                f"      expect(typeof {func}).toBe('function');",
+                f"    }});",
+                f"    test('should return a value', () => {{",
+                f"      const result = {func}();",
+                f"      expect(result).toBeDefined();",
+                f"    }});",
+                f"    test('should handle null gracefully', () => {{",
+                f"      expect(() => {func}(null)).not.toThrow();",
+                f"    }});",
+                f"  }});",
+                "",
+            ]
 
-    test('should return a value', () => {{
-      const result = {func}();
-      expect(result).toBeDefined();
-    }});
+        lines.append("});")
+        return "\n".join(lines)
 
-    test('should handle edge cases', () => {{
-      expect(() => {func}(null)).not.toThrow();
-    }});
-  }});
-"""
 
-        test_code += "});\n"
-        return test_code
-
+# ─── Agent Executor ────────────────────────────────────────────────────────────
 
 test_gen = TestGenerator()
 
 
-@app.get("/.well-known/agent-card")
-async def get_agent_card():
-    return AGENT_CARD
+class TestRunAgentExecutor(AgentExecutor):
+    """
+    A2A executor — parses message parts, generates (and optionally executes)
+    tests, then emits text + data artifacts plus the raw test file artifact.
+    """
 
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        await updater.submit()
+        await updater.start_work()
 
-@app.get("/health")
-async def health():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "agentId": AGENT_ID,
-        "docker_available": USE_DOCKER,
-        "capabilities": AGENT_CARD["capabilities"]["skills"]
-    }
+        try:
+            # ── Parse incoming parts ──────────────────────────────────────────
+            code_text = ""
+            language  = "python"
+            action    = "generate"   # "generate" | "execute"
 
+            for part in context.message.parts:
+                if isinstance(part.root, TextPart):
+                    code_text += part.root.text
+                elif isinstance(part.root, DataPart):
+                    data: dict = part.root.data or {}
+                    language  = data.get("language", "python")
+                    code_text = data.get("code", code_text)
+                    action    = data.get("action", "generate")
 
-@app.post("/a2a")
-async def a2a_endpoint(request: Request):
-    body = await request.json()
+            # ── Generate tests ────────────────────────────────────────────────
+            if language == "python":
+                test_code = test_gen.generate_python_tests(code_text)
+            elif language == "javascript":
+                test_code = test_gen.generate_javascript_tests(code_text)
+            else:
+                test_code = f"# Test generation for '{language}' is not yet supported"
 
-    if body.get("jsonrpc") != "2.0":
-        return {
-            "jsonrpc": "2.0",
-            "id": body.get("id"),
-            "error": {"code": -32600, "message": "Invalid Request"}
-        }
+            test_count = len(re.findall(r"def test_|test\(", test_code))
 
-    method = body.get("method")
-    params = body.get("params", {})
-    request_id = body.get("id")
+            result_text = (
+                f"🧪 Test Generation Results\n\n"
+                f"Language       : {language}\n"
+                f"Action         : {action}\n"
+                f"Tests Generated: {test_count}\n\n"
+                f"Test Code Preview:\n```\n{test_code[:600]}\n...\n```\n"
+            )
 
-    try:
-        if method == "a2a.createTask":
-            result = await create_task(params)
-        elif method == "a2a.getTask":
-            result = await get_task(params)
-        elif method == "a2a.listTasks":
-            result = await list_tasks(params)
-        else:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"Method not found: {method}"}
+            data_result: Dict[str, Any] = {
+                "test_code" : test_code,
+                "language"  : language,
+                "action"    : action,
+                "test_count": test_count,
             }
 
-        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+            # ── Optionally execute ────────────────────────────────────────────
+            if action == "execute" and language == "python":
+                execution = test_gen.run_python_tests(test_code)
+                result_text += (
+                    f"\n🚀 Execution Results:\n"
+                    f"Status : {execution.get('status', 'unknown')}\n\n"
+                    f"Output :\n{execution.get('output', 'No output')[:400]}\n"
+                )
+                if execution.get("errors"):
+                    result_text += f"\nErrors :\n{execution['errors'][:200]}\n"
+                data_result["execution"] = execution
 
-    except Exception as e:
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {"code": -32603, "message": str(e)}
-        }
+            # ── File extension for artifact ───────────────────────────────────
+            ext = "py" if language == "python" else "js"
 
+            # ── Emit artifacts ────────────────────────────────────────────────
+            # Artifact 1: summary text + structured data
+            await updater.add_artifact(
+                parts=[
+                    Part(root=TextPart(text=result_text)),
+                    Part(root=DataPart(data=data_result)),
+                ],
+                name="test_results",
+            )
 
-async def create_task(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Create test generation/execution task"""
-    task_id = str(uuid.uuid4())
-    message = params.get("message", {})
-    metadata = params.get("metadata", {})
+            # Artifact 2: raw test file content
+            await updater.add_artifact(
+                parts=[Part(root=TextPart(text=test_code))],
+                name=f"test_{language}.{ext}",
+            )
 
-    code_text = ""
-    language = "python"
-    action = "generate"
+            await updater.complete()
 
-    for part in message.get("parts", []):
-        if part.get("kind") == "text":
-            code_text += part.get("text", "")
-        elif part.get("kind") == "data":
-            data = part.get("data", {})
-            language = data.get("language", "python")
-            code_text = data.get("code", code_text)
-            action = data.get("action", "generate")
+        except Exception as exc:
+            await updater.failed(message=str(exc))
 
-    # Generate tests
-    if language == "python":
-        test_code = test_gen.generate_python_tests(code_text)
-    elif language == "javascript":
-        test_code = test_gen.generate_javascript_tests(code_text)
-    else:
-        test_code = f"# Tests for {language} not yet supported"
-
-    test_count = len(re.findall(r'def test_|test\(', test_code))
-    
-    result_text = f"""
-🧪 Test Generation Results
-
-Language: {language}
-Action: {action}
-Tests Generated: {test_count}
-
-Test Code Preview:
-```
-{test_code[:600]}...
-```
-"""
-
-    data_result = {
-        "test_code": test_code,
-        "language": language,
-        "action": action,
-        "test_count": test_count
-    }
-
-    # Execute tests if requested
-    if action == "execute" and language == "python":
-        execution_result = test_gen.run_python_tests(test_code)
-        
-        result_text += f"""
-
-🚀 Execution Results:
-Status: {execution_result.get('status', 'unknown')}
-
-Output:
-{execution_result.get('output', 'No output')[:400]}
-"""
-        
-        if execution_result.get('errors'):
-            result_text += f"\nErrors:\n{execution_result['errors'][:200]}\n"
-        
-        data_result["execution"] = execution_result
-
-    task = {
-        "taskId": task_id,
-        "status": "completed",
-        "createdAt": datetime.utcnow().isoformat(),
-        "updatedAt": datetime.utcnow().isoformat(),
-        "messages": [
-            {
-                "messageId": str(uuid.uuid4()),
-                "role": "user",
-                "timestamp": datetime.utcnow().isoformat(),
-                "parts": message.get("parts", [])
-            },
-            {
-                "messageId": str(uuid.uuid4()),
-                "role": "assistant",
-                "timestamp": datetime.utcnow().isoformat(),
-                "parts": [
-                    {"kind": "text", "text": result_text},
-                    {"kind": "data", "data": data_result}
-                ]
-            }
-        ],
-        "artifacts": [
-            {
-                "artifactId": str(uuid.uuid4()),
-                "name": f"test_{language}.{'py' if language == 'python' else 'js'}",
-                "mimeType": "text/plain",
-                "content": test_code
-            }
-        ],
-        "metadata": {**metadata, "agentId": AGENT_ID, "testAction": action}
-    }
-
-    TASKS[task_id] = task
-    return task
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        raise NotImplementedError("Cancel is not supported by this agent")
 
 
-async def get_task(params: Dict[str, Any]) -> Dict[str, Any]:
-    task_id = params.get("taskId")
-    if not task_id or task_id not in TASKS:
-        raise ValueError(f"Task not found: {task_id}")
-    return TASKS[task_id]
+# ─── App Bootstrap ─────────────────────────────────────────────────────────────
+
+def build_app():
+    handler = DefaultRequestHandler(
+        agent_executor=TestRunAgentExecutor(),
+        task_store=InMemoryTaskStore(),
+    )
+    return A2AStarletteApplication(
+        agent_card=agent_card,
+        http_handler=handler,
+    ).build()
 
 
-async def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
-    status_filter = params.get("status")
-    limit = params.get("limit", 100)
-    tasks = list(TASKS.values())
-    if status_filter:
-        tasks = [t for t in tasks if t["status"] == status_filter]
-    return {"tasks": tasks[:limit], "total": len(tasks)}
-
+app = build_app()
 
 if __name__ == "__main__":
-    import uvicorn
-    print(f"🚀 Starting Improved Test Run Agent: {AGENT_ID}")
-    print(f"📍 AgentCard: http://{HOST}:{PORT}/.well-known/agent-card")
-    print(f"🐳 Docker: {'Enabled' if USE_DOCKER else 'Disabled'}")
+    print(f"🚀 Test Run Agent  →  http://{HOST}:{PORT}/")
+    print(f"📄 Agent Card      →  http://{HOST}:{PORT}/.well-known/agent.json")
+    print(f"🐳 Docker          :  {'Enabled' if USE_DOCKER else 'Disabled'}")
     uvicorn.run(app, host="0.0.0.0", port=PORT)

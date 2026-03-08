@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasks | A2A Multi-Agent Dashboard</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <div class="nav-container">
+    <div class="container">
+      <nav class="nav">
+        <a href="/" class="nav-brand">
+          <div class="nav-brand-icon">🤖</div>
+          <span>A2A Dashboard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">📁 Upload</a></li>
+          <li><a href="/tasks.html" class="nav-link active">📋 Tasks</a></li>
+          <li><a href="/logs.html" class="nav-link">📜 Logs</a></li>
+          <li><a href="/progress.html" class="nav-link">⚡ Progress</a></li>
+        </ul>
+
+        <div class="nav-status">
+          <span class="health-indicator healthy"></span>
+          <span>System Online</span>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="container">
+    <div class="page-header">
+      <h1 class="page-title">Task Dashboard</h1>
+      <p class="page-subtitle">Monitor and manage agent tasks</p>
+    </div>
+
+    <!-- Filters Bar -->
+    <div class="filters-bar">
+      <div class="filter-group">
+        <label class="filter-label">Agent:</label>
+        <select class="form-select filter-input" id="filter-agent">
+          <option value="">All Agents</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Status:</label>
+        <select class="form-select filter-input" id="filter-status">
+          <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+
+      <div class="filter-group" style="margin-left: auto;">
+        <button class="btn btn-secondary btn-sm" id="refresh-tasks">
+          🔄 Refresh
+        </button>
+        <label class="log-auto-scroll-toggle" id="auto-refresh-toggle">
+          <input type="checkbox" id="auto-refresh-checkbox" checked>
+          <span style="font-size: 12px;">Auto-refresh (5s)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Tasks Table -->
+    <div class="table-container">
+      <table class="table" id="tasks-table">
+        <thead>
+          <tr>
+            <th>Task ID</th>
+            <th>Agent</th>
+            <th>Request</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody id="tasks-tbody">
+          <tr>
+            <td colspan="6" style="text-align: center; padding: 40px;">
+              <span class="loading" style="width: 24px; height: 24px;"></span>
+              <p style="margin-top: 16px;">Loading tasks...</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Task Details Modal (dynamically created) -->
+
+  <!-- Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/utils.js"></script>
+  <script src="/static/js/tasks.js"></script>
+</body>
+</html>

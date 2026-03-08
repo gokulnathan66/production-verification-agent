@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+boto3
+databases[aiosqlite]
+aiosqlite
+python-multipart

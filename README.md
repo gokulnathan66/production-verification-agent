@@ -4,6 +4,22 @@ A **simple, working** implementation of Google's A2A (Agent2Agent) protocol with
 
 ## 🚀 Quick Start
 
+### Production Verification Workflow
+
+```bash
+# 1. Start all services
+./run_all_agents.sh
+
+# 2. Upload code & trigger verification
+# Visit http://localhost:8006
+# - Upload code zip
+# - Click "Verify Production Code"
+# - Monitor progress in real-time
+
+# 3. Or test via script
+python test_verification.py
+```
+
 ### Complete System (All 5 Agents)
 
 ```bash
@@ -40,13 +56,25 @@ A complete A2A multi-agent system with 5 specialized agents for production code 
 
 ### 🤖 The Agents
 
-1. **Code Logic Agent** (Port 8001)
+1. **Intract-Orchestrator** (Port 8006)
+   - Web UI frontend gateway
+   - S3 artifact management
+   - Triggers verification workflows
+   - Real-time monitoring dashboard
+
+2. **Orchestrator Agent** (Port 8000)
+   - Multi-agent workflow coordinator
+   - Shared workspace management
+   - S3 integration for results
+   - Complete verification pipeline
+
+3. **Code Logic Agent** (Port 8001)
    - AST parsing and structural analysis
    - Complexity metrics and quality scoring
    - Function/class extraction
    - Multi-language support (Python, JS, Java)
 
-2. **Research Agent** (Port 8003)
+4. **Research Agent** (Port 8003)
    - Grep-based code search (Claude Code style)
    - Pattern matching and discovery
    - RESEARCH.md generation
@@ -77,6 +105,22 @@ A complete A2A multi-agent system with 5 specialized agents for production code 
 ✅ **MCP Integration** (Context7 for documentation)
 ✅ **Complete Workflows** (end-to-end verification)
 ✅ **Production Ready** (comprehensive testing)
+✅ **Web Dashboard** (real-time monitoring UI with S3 uploads)
+
+## 🎨 Web Dashboard
+
+A modern, real-time web UI for monitoring and managing agents:
+
+- **📁 Upload Artifacts**: Drag-and-drop file uploads to S3
+- **📋 Task Dashboard**: View and filter agent tasks
+- **📜 Logs Viewer**: Real-time log streaming with SSE
+- **⚡ Progress Tracker**: Live agent status monitoring
+
+**Access**: http://localhost:8006 (when orchestrator is running)
+
+**Screenshot**: Command center aesthetic with dark mode, glowing accents, and real-time updates.
+
+See [frontend/README.md](./frontend/README.md) for full documentation.
 
 ## Project Structure
 
@@ -105,7 +149,18 @@ A complete A2A multi-agent system with 5 specialized agents for production code 
 │   │   └── agent.py
 │   └── orchestrator/                   # Simple orchestrator (demo)
 │       ├── orchestrator.py
-│       └── mcp_client.py
+│       ├── mcp_client.py
+│       ├── s3_client.py                # S3 artifact manager
+│       └── storage.py                  # SQLite persistence
+├── frontend/                            # Web dashboard UI
+│   ├── index.html                      # Upload page
+│   ├── tasks.html                      # Task dashboard
+│   ├── logs.html                       # Logs viewer
+│   ├── progress.html                   # Progress tracker
+│   ├── static/
+│   │   ├── css/                        # Design system
+│   │   └── js/                         # Frontend logic
+│   └── README.md                       # Frontend documentation
 ├── QUICKSTART.md                        # Step-by-step guide
 ├── AGENTS_GUIDE.md                      # Complete guide for all agents
 ├── run_all_agents.sh                    # Start all agents
@@ -116,6 +171,7 @@ A complete A2A multi-agent system with 5 specialized agents for production code 
 
 ## Documentation
 
+- **[VERIFICATION_WORKFLOW.md](./VERIFICATION_WORKFLOW.md)** - Complete verification workflow guide
 - **[QUICKSTART.md](./QUICKSTART.md)** - Get started in 5 minutes
 - **[Simple Implementation Plan](./docs/009-simple-implementation-plan.md)** - Minimal working system
 - **[Full Implementation Plan](./docs/008-plan-a2a.md)** - Complete A2A protocol details
@@ -142,18 +198,50 @@ Uses Model Context Protocol with Context7 plugin for:
 - **Orchestrator**: ~200 lines - clear workflow routing
 - **MCP Client**: ~100 lines - simple doc integration
 
+## Setup with Dashboard
+
+### 1. Install Backend Dependencies
+
+```bash
+cd src/orchestrator
+pip install -r requirements.txt
+```
+
+### 2. Configure S3 (Optional - for artifact uploads)
+
+Create `.env` file in project root:
+
+```bash
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=a2a-multi-agent-artifacts
+PORT=8006
+```
+
+### 3. Start Orchestrator
+
+```bash
+cd src/orchestrator
+python orchestrator.py
+```
+
+Dashboard available at: **http://localhost:8006**
+
 ## Quick Test
 
 ```bash
 # Discover agent
-curl -X POST http://localhost:8000/discover \
+curl -X POST http://localhost:8006/discover \
   -H "Content-Type: application/json" \
   -d '{"url": "http://localhost:8001"}'
 
 # Execute task
-curl -X POST http://localhost:8000/execute \
+curl -X POST http://localhost:8006/execute \
   -H "Content-Type: application/json" \
   -d '{"request": "Hello A2A!"}'
+
+# Or use the web dashboard at http://localhost:8006
 ```
 
 ## Next Steps

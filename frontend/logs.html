@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logs | A2A Multi-Agent Dashboard</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <div class="nav-container">
+    <div class="container">
+      <nav class="nav">
+        <a href="/" class="nav-brand">
+          <div class="nav-brand-icon">🤖</div>
+          <span>A2A Dashboard</span>
+        </a>
+
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">📁 Upload</a></li>
+          <li><a href="/tasks.html" class="nav-link">📋 Tasks</a></li>
+          <li><a href="/logs.html" class="nav-link active">📜 Logs</a></li>
+          <li><a href="/progress.html" class="nav-link">⚡ Progress</a></li>
+        </ul>
+
+        <div class="nav-status">
+          <span class="health-indicator healthy"></span>
+          <span>System Online</span>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="container">
+    <div class="page-header">
+      <h1 class="page-title">Agent Logs</h1>
+      <p class="page-subtitle">Real-time log stream from all agents</p>
+    </div>
+
+    <!-- Filters Bar -->
+    <div class="filters-bar">
+      <div class="filter-group">
+        <label class="filter-label">Agent:</label>
+        <select class="form-select filter-input" id="filter-agent">
+          <option value="">All Agents</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Level:</label>
+        <select class="form-select filter-input" id="filter-level">
+          <option value="">All Levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+          <option value="SUCCESS">SUCCESS</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Search:</label>
+        <input type="text" class="form-input filter-input" id="search-input" placeholder="Search logs...">
+      </div>
+
+      <div class="filter-group" style="margin-left: auto; gap: 12px;">
+        <label class="log-auto-scroll-toggle active" id="auto-scroll-toggle">
+          <input type="checkbox" id="auto-scroll-checkbox" checked>
+          <span style="font-size: 12px;">Auto-scroll</span>
+        </label>
+        <button class="btn btn-ghost btn-sm" id="clear-logs">🗑️ Clear</button>
+        <button class="btn btn-secondary btn-sm" id="download-logs">📥 Download</button>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="logs-controls">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--color-bg-elevated); border-radius: 8px; border: 1px solid var(--color-border-primary);">
+        <div id="stream-status" style="display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px;">
+          <span class="health-indicator healthy"></span>
+          <span>Stream Connected</span>
+        </div>
+        <span style="color: var(--color-border-primary);">|</span>
+        <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-text-tertiary);">
+          <span id="log-count">0</span> logs
+        </span>
+      </div>
+    </div>
+
+    <!-- Logs Container -->
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <div class="log-container" id="log-container">
+        <div class="empty-state">
+          <div class="empty-state-icon">📜</div>
+          <div class="empty-state-title">Waiting for logs...</div>
+          <div class="empty-state-text">Real-time logs will appear here</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/utils.js"></script>
+  <script src="/static/js/logs.js"></script>
+</body>
+</html>

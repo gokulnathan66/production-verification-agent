@@ -4,7 +4,7 @@ services:
   code-logic-agent:
     build:
       context: ./code_logic_agent
-      dockerfile: ../Dockerfile
+      dockerfile: ../Dockerfile.agent
     ports:
       - "8001:8001"
     environment:
@@ -15,7 +15,7 @@ services:
   research-agent:
     build:
       context: ./research_agent
-      dockerfile: ../Dockerfile
+      dockerfile: ../Dockerfile.agent
     ports:
       - "8003:8003"
     environment:
@@ -26,7 +26,7 @@ services:
   test-run-agent:
     build:
       context: ./test_run_agents
-      dockerfile: ../Dockerfile
+      dockerfile: ../Dockerfile.agent
     ports:
       - "8004:8004"
     environment:
@@ -37,7 +37,7 @@ services:
   validation-agent:
     build:
       context: ./validation_agent
-      dockerfile: ../Dockerfile
+      dockerfile: ../Dockerfile.agent
     ports:
       - "8005:8005"
     environment:
@@ -48,7 +48,7 @@ services:
   orchestrator-agent:
     build:
       context: ./orchestorator_agent
-      dockerfile: ../Dockerfile
+      dockerfile: ../Dockerfile.agent
     ports:
       - "8000:8000"
     environment:
@@ -68,7 +68,7 @@ services:
   orchestrator:
     build:
       context: ./orchestorator
-      dockerfile: ./orchestrator/Dockerfile
+      dockerfile: ./orchestrator/Dockerfile.agent
     ports:
       - "8006:8006"
     environment:
