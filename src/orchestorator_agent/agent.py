@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+import boto3
 import httpx
 import uvicorn
 from a2a.client import A2AClient
@@ -91,6 +92,13 @@ KNOWN_AGENTS = {
     "validation-agent" : "http://localhost:8005",
 }
 
+AGENT_DESCRIPTIONS = {
+    "code-logic-agent": "Analyzes code structure, logic, and architecture using AST parsing",
+    "research-agent": "Searches codebase for patterns, functions, and dependencies using grep",
+    "test-run-agent": "Generates and executes tests with coverage analysis",
+    "validation-agent": "Runs security scans, finds secrets and vulnerabilities",
+}
+
 # ─── Orchestrator ──────────────────────────────────────────────────────────────
 
 class MultiAgentOrchestrator:
@@ -106,6 +114,27 @@ class MultiAgentOrchestrator:
         except Exception as e:
             print(f"⚠️  S3 client initialization failed: {e}")
             self.s3_client = None
+
+        # Initialize Bedrock client
+        try:
+            self.bedrock = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1"))
+            print("✅ Bedrock client initialized")
+        except Exception as e:
+            print(f"⚠️  Bedrock client initialization failed: {e}")
+            self.bedrock = None
+
+        # Get model ID from environment variable
+        self.model_id = os.getenv("MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+        print(f"✅ Using Bedrock model: {self.model_id}")
+
+        # Load system prompt
+        prompt_path = Path(__file__).parent / "prompt.txt"
+        try:
+            self.system_prompt = prompt_path.read_text()
+            print("✅ System prompt loaded")
+        except Exception as e:
+            print(f"⚠️  Failed to load prompt.txt: {e}")
+            self.system_prompt = "You are an orchestrator agent."
 
     async def discover_agents(self, http_client: httpx.AsyncClient) -> Dict[str, Any]:
         """
@@ -169,6 +198,149 @@ class MultiAgentOrchestrator:
         params = MessageSendParams(message=message)
         response = await client.send_message(params)
         return response.model_dump()
+    
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with agent registry."""
+        agents_info = "\n".join([
+            f"- {agent_id}: {AGENT_DESCRIPTIONS[agent_id]}"
+            for agent_id in KNOWN_AGENTS
+        ])
+        
+        return f"""{self.system_prompt}
+
+## Available Agents
+
+{agents_info}
+
+## Response Format
+
+You must respond with valid JSON in one of these formats:
+
+1. To call an agent:
+{{"action": "call_agent", "agent_id": "<agent_id>", "instruction": "<what to do>"}}
+
+2. To provide final answer:
+{{"action": "final_answer", "summary": "<comprehensive summary of all results>"}}
+
+Rules:
+- Analyze the task and decide which agents are needed and in what order
+- Call agents sequentially, using results from previous agents to inform next steps
+- Only call agents that are relevant to the task
+- After all necessary agents complete, provide a final_answer with comprehensive summary
+"""
+
+    async def llm_run(
+        self,
+        user_task: str,
+        context: dict,
+        http_client: httpx.AsyncClient,
+    ) -> Dict[str, Any]:
+        """LLM-driven agentic loop using AWS Bedrock."""
+        if not self.bedrock:
+            raise Exception("Bedrock client not initialized")
+        
+        messages = [{"role": "user", "content": user_task}]
+        agent_results = {}
+        
+        print(f"\n🤖 LLM Orchestration Started")
+        print(f"   Task: {user_task[:100]}...")
+        
+        for turn in range(10):  # max 10 LLM turns
+            print(f"\n🔄 Turn {turn + 1}/10")
+            
+            try:
+                # Call Bedrock
+                response = self.bedrock.invoke_model(
+                    modelId=self.model_id,
+                    body=json.dumps({
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "max_tokens": 2048,
+                        "system": self._build_system_prompt(),
+                        "messages": messages,
+                    })
+                )
+                
+                result = json.loads(response["body"].read())
+                llm_text = result["content"][0]["text"]
+                messages.append({"role": "assistant", "content": llm_text})
+                
+                print(f"   LLM Response: {llm_text[:200]}...")
+                
+                # Parse decision
+                try:
+                    decision = json.loads(llm_text)
+                except json.JSONDecodeError:
+                    print(f"   ⚠️  LLM returned non-JSON, treating as final answer")
+                    return {
+                        "summary": llm_text,
+                        "details": agent_results,
+                        "turns": turn + 1
+                    }
+                
+                # Handle actions
+                if decision.get("action") == "final_answer":
+                    print(f"   ✅ Final answer received")
+                    return {
+                        "summary": decision.get("summary", ""),
+                        "details": agent_results,
+                        "turns": turn + 1
+                    }
+                
+                elif decision.get("action") == "call_agent":
+                    agent_id = decision.get("agent_id")
+                    instruction = decision.get("instruction", "")
+                    
+                    print(f"   📞 Calling agent: {agent_id}")
+                    print(f"      Instruction: {instruction[:100]}...")
+                    
+                    # Call the agent
+                    try:
+                        result = await self.call_agent(
+                            agent_id,
+                            [
+                                Part(root=TextPart(text=instruction)),
+                                Part(root=DataPart(data=context))
+                            ],
+                            http_client
+                        )
+                        agent_results[agent_id] = result
+                        
+                        # Feed result back to LLM
+                        result_summary = json.dumps(result)[:2000]
+                        messages.append({
+                            "role": "user",
+                            "content": f"Agent '{agent_id}' completed. Result: {result_summary}"
+                        })
+                        print(f"   ✅ Agent {agent_id} completed")
+                        
+                    except Exception as e:
+                        error_msg = f"Agent '{agent_id}' failed: {str(e)}"
+                        agent_results[agent_id] = {"error": str(e)}
+                        messages.append({
+                            "role": "user",
+                            "content": error_msg
+                        })
+                        print(f"   ❌ {error_msg}")
+                
+                else:
+                    print(f"   ⚠️  Unknown action: {decision.get('action')}")
+                    break
+                    
+            except Exception as e:
+                print(f"   ❌ LLM call failed: {e}")
+                return {
+                    "summary": f"Orchestration failed: {str(e)}",
+                    "details": agent_results,
+                    "error": str(e),
+                    "turns": turn + 1
+                }
+        
+        print(f"\n⚠️  Max turns reached")
+        return {
+            "summary": "Orchestration reached maximum turns",
+            "details": agent_results,
+            "turns": 10
+        }
 
     # ── Workflows ──────────────────────────────────────────────────────────────
 
@@ -462,37 +634,68 @@ class OrchestratorAgentExecutor(AgentExecutor):
                 await orchestrator.discover_agents(http_client)
 
                 if workflow == "verification" and s3_key:
-                    # Run production verification workflow
-                    workflow_results = await orchestrator.handle_verification_workflow(
-                        s3_key=s3_key,
-                        s3_bucket=s3_bucket or os.getenv("S3_BUCKET_NAME", ""),
-                        project_name=project_name or "unknown",
-                        http_client=http_client,
-                        metadata=metadata
+                    # Prepare workspace for verification
+                    task_id = str(uuid.uuid4())
+                    workspace = f"/tmp/workspace/{task_id}"
+                    os.makedirs(workspace, exist_ok=True)
+                    
+                    # Download and extract code
+                    if orchestrator.s3_client:
+                        zip_path = f"{workspace}/code.zip"
+                        orchestrator.s3_client.download_file(s3_key, zip_path)
+                        with zipfile.ZipFile(zip_path, 'r') as zf:
+                            zf.extractall(workspace)
+                        os.remove(zip_path)
+                    
+                    # LLM-driven orchestration
+                    workflow_results = await orchestrator.llm_run(
+                        user_task=f"Verify production code for project '{project_name}'. The code is in workspace: {workspace}",
+                        context={
+                            "workspace": workspace,
+                            "project_name": project_name,
+                            "task_id": task_id,
+                            "s3_key": s3_key
+                        },
+                        http_client=http_client
                     )
+                    
+                    # Upload results
+                    if orchestrator.s3_client:
+                        results_file = f"{workspace}/verification_results.json"
+                        with open(results_file, 'w') as f:
+                            json.dump(workflow_results, f, indent=2)
+                        result_s3_key = f"results/{task_id}/verification_results.json"
+                        results_url = orchestrator.s3_client.upload_file(results_file, result_s3_key)
+                        workflow_results["results_url"] = results_url
+                    
+                    # Cleanup
+                    shutil.rmtree(workspace, ignore_errors=True)
+                    
                 elif workflow == "full_analysis":
-                    workflow_results = await orchestrator.run_full_analysis(
-                        code_text, language, http_client
+                    # LLM-driven orchestration for code analysis
+                    workflow_results = await orchestrator.llm_run(
+                        user_task=f"Analyze this {language} code:\n\n{code_text[:1000]}",
+                        context={"code": code_text, "language": language},
+                        http_client=http_client
                     )
                 else:
                     workflow_results = {"error": f"Unknown workflow: '{workflow}'"}
 
             # ── Build summary ─────────────────────────────────────────────────
+            summary_text = workflow_results.get("summary", "No summary available")
+            
             if workflow == "verification":
                 summary_text = f"""
-🎯 Production Verification Complete
+🎯 Production Verification Complete (LLM-Driven)
 
-Project: {workflow_results.get('project_name', 'N/A')}
-Task ID: {workflow_results.get('task_id', 'N/A')}
-Status: {workflow_results.get('status', 'N/A')}
+Project: {project_name or 'N/A'}
+Workflow: {workflow}
+LLM Turns: {workflow_results.get('turns', 'N/A')}
+
+{summary_text}
 
 Results URL: {workflow_results.get('results_url', 'N/A')}
-
-Summary:
-{json.dumps(workflow_results.get('summary', {}), indent=2)}
 """
-            else:
-                summary_text = orchestrator.generate_summary(workflow_results)
 
             # ── Emit artifacts ────────────────────────────────────────────────
             await updater.add_artifact(
@@ -515,4 +718,39 @@ Summary:
         raise NotImplementedError("Cancel is not supported by this agent")
 
 
-# ─── App
+# ─── App ───────────────────────────────────────────────────────────────────────
+
+# Initialize S3 client
+try:
+    s3_client = SharedS3Client()
+    print("✅ S3 client initialized")
+except Exception as e:
+    print(f"⚠️  S3 client initialization failed: {e}")
+    s3_client = None
+
+# Create components
+executor = OrchestratorAgentExecutor()
+task_store = InMemoryTaskStore()
+handler = DefaultRequestHandler(
+    agent_executor=executor,
+    task_store=task_store
+)
+
+# Create app
+app = A2AStarletteApplication(
+    agent_card=agent_card,
+    http_handler=handler,
+).build()
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    print(f"🚀 Orchestrator Agent  →  http://{HOST}:{PORT}/")
+    print(f"📄 Agent Card          →  http://{HOST}:{PORT}/.well-known/agent.json")
+    
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+    )

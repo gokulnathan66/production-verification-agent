@@ -10,6 +10,7 @@ COPY src/shared /app/shared
 COPY src/${AGENT_DIR}/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/${AGENT_DIR}/agent.py .
+# Copy all agent files (including prompt.txt for orchestrator)
+COPY src/${AGENT_DIR}/ .
 
 CMD ["python", "agent.py"]

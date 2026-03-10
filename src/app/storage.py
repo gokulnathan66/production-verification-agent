@@ -1,9 +1,9 @@
 """
 Persistent Storage Layer for A2A Multi-Agent System
-Uses SQLite for task history, logs, and artifact metadata
+Uses PostgreSQL for task history, logs, and artifact metadata
 """
 import databases
-import aiosqlite
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import json
@@ -12,15 +12,17 @@ import json
 class PersistentStorage:
     """
     Handles persistent storage of tasks, logs, and artifacts
-    Uses SQLite with async support
+    Uses PostgreSQL with async support
     """
 
-    def __init__(self, db_path: str = "a2a_dashboard.db"):
+    def __init__(self, database_url: str = None):
         """
         Initialize database connection
         """
-        self.database = databases.Database(f"sqlite:///{db_path}")
-        self.db_path = db_path
+        if database_url is None:
+            database_url = os.getenv("DATABASE_URL", "sqlite:///a2a_dashboard.db")
+        self.database = databases.Database(database_url)
+        self.database_url = database_url
 
     async def init_db(self):
         """
@@ -29,18 +31,18 @@ class PersistentStorage:
         """
         await self.database.execute("""
             CREATE TABLE IF NOT EXISTS artifacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 filename TEXT NOT NULL,
                 s3_key TEXT NOT NULL,
                 s3_url TEXT NOT NULL,
                 presigned_url TEXT NOT NULL,
                 bucket TEXT NOT NULL,
-                size INTEGER NOT NULL,
+                size BIGINT NOT NULL,
                 content_type TEXT NOT NULL,
                 tags TEXT,
                 description TEXT,
-                uploaded_at TEXT NOT NULL,
-                metadata TEXT
+                uploaded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                metadata JSONB
             )
         """)
 
@@ -54,23 +56,23 @@ class PersistentStorage:
                 result TEXT,
                 error TEXT,
                 artifacts TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                completed_at TEXT,
-                metadata TEXT
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                completed_at TIMESTAMP,
+                metadata JSONB
             )
         """)
 
         await self.database.execute("""
             CREATE TABLE IF NOT EXISTS agent_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 agent_id TEXT NOT NULL,
                 agent_name TEXT,
                 task_id TEXT,
                 level TEXT NOT NULL,
                 message TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                metadata TEXT
+                timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                metadata JSONB
             )
         """)
 
@@ -133,7 +135,7 @@ class PersistentStorage:
             "content_type": content_type,
             "tags": tags,
             "description": description,
-            "uploaded_at": datetime.utcnow().isoformat(),
+            "uploaded_at": datetime.utcnow(),
             "metadata": json.dumps(metadata) if metadata else None
         }
 
@@ -181,7 +183,7 @@ class PersistentStorage:
         Returns:
             task_id
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow()
 
         # Check if task exists
         existing = await self.database.fetch_one(
@@ -338,7 +340,7 @@ class PersistentStorage:
             "task_id": task_id,
             "level": level,
             "message": message,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow(),
             "metadata": json.dumps(metadata) if metadata else None
         }
 

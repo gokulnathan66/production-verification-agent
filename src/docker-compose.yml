@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=a2a_dashboard
+      - POSTGRES_USER=a2a_user
+      - POSTGRES_PASSWORD=a2a_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - a2a-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U a2a_user -d a2a_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   code-logic-agent:
     build:
       context: ..
@@ -79,6 +97,7 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
+      - MODEL_ID=${MODEL_ID}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - CODE_LOGIC_AGENT_URL=http://code-logic-agent:8001
       - RESEARCH_AGENT_URL=http://research-agent:8003
@@ -96,24 +115,31 @@ services:
     networks:
       - a2a-network
 
-  intract-orchestrator:
+  app:
     build:
       context: ..
-      dockerfile: src/intract-orchestrator/Dockerfile
+      dockerfile: src/app/Dockerfile
     ports:
       - "8006:8006"
     environment:
       - PORT=8006
+      - DATABASE_URL=postgresql://a2a_user:a2a_password@postgres:5432/a2a_dashboard
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
     depends_on:
-      - orchestrator-agent
+      postgres:
+        condition: service_healthy
+      orchestrator-agent:
+        condition: service_started
     networks:
       - a2a-network
 
 networks:
   a2a-network:
     driver: bridge
+
+volumes:
+  postgres-data:

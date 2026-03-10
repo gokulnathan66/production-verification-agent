@@ -11,6 +11,7 @@ const fileName = document.getElementById('file-name');
 const fileSize = document.getElementById('file-size');
 const removeFileBtn = document.getElementById('remove-file');
 const metadataForm = document.getElementById('metadata-form');
+const projectNameInput = document.getElementById('project-name-input');
 const tagsInput = document.getElementById('tags-input');
 const descriptionInput = document.getElementById('description-input');
 const uploadBtn = document.getElementById('upload-btn');
@@ -125,6 +126,7 @@ function clearSelectedFile() {
   metadataForm.classList.add('hidden');
   uploadProgress.classList.add('hidden');
 
+  projectNameInput.value = '';
   tagsInput.value = '';
   descriptionInput.value = '';
 }
@@ -138,9 +140,18 @@ async function handleUpload() {
     return;
   }
 
+  // Validate project name
+  const projectName = projectNameInput.value.trim();
+  if (!projectName) {
+    showToast('Please enter a project name', 'error');
+    projectNameInput.focus();
+    return;
+  }
+
   // Prepare form data
   const formData = new FormData();
   formData.append('file', selectedFile);
+  formData.append('project_name', projectName);
 
   if (tagsInput.value.trim()) {
     formData.append('tags', tagsInput.value.trim());

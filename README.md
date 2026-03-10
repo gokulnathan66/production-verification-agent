@@ -56,7 +56,7 @@ A complete A2A multi-agent system with 5 specialized agents for production code 
 
 ### 🤖 The Agents
 
-1. **Intract-Orchestrator** (Port 8006)
+1. **app** (Port 8006)
    - Web UI frontend gateway
    - S3 artifact management
    - Triggers verification workflows

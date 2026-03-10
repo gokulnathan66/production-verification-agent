@@ -6,7 +6,7 @@ Complete implementation of the production code verification system using shared 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  intract-orchestrator (Port 8006)                           │
+│  app (Port 8006)                           │
 │  • Web UI (upload, dashboard, logs)                         │
 │  • S3 client (upload/download artifacts)                    │
 │  • Triggers orchestrator_agent via A2A                      │
@@ -39,7 +39,7 @@ Unified S3 client used by all agents:
 - Generate presigned URLs
 - Check file existence
 
-### 2. Intract-Orchestrator (`src/intract-orchestrator/`)
+### 2. app (`src/app/`)
 
 Frontend gateway with new endpoint:
 
@@ -77,8 +77,8 @@ New verification section:
 ### 1. Start All Services
 
 ```bash
-# Terminal 1: Start intract-orchestrator
-cd src/intract-orchestrator
+# Terminal 1: Start app
+cd src/app
 python app.py
 
 # Terminal 2: Start orchestrator agent
@@ -203,12 +203,12 @@ AWS_REGION=us-east-1
 S3_BUCKET_NAME=a2a-multi-agent-artifacts
 
 # Ports
-PORT=8006  # intract-orchestrator
+PORT=8006  # app
 ```
 
 ### Agent Ports
 
-- intract-orchestrator: 8006
+- app: 8006
 - orchestrator_agent: 8000
 - code-logic-agent: 8001
 - research-agent: 8003
@@ -275,7 +275,7 @@ open http://localhost:8006/logs.html
 ## Files Modified
 
 - `src/shared/s3_client.py` - New shared S3 client
-- `src/intract-orchestrator/app.py` - Added `/api/verify/trigger` endpoint
+- `src/app/app.py` - Added `/api/verify/trigger` endpoint
 - `src/orchestorator_agent/agent.py` - Added `handle_verification_workflow()`
 - `frontend/index.html` - Added verification UI section
 - `frontend/static/js/upload.js` - Added verification trigger logic

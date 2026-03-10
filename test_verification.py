@@ -20,8 +20,8 @@ async def test_verification_flow():
     print("=" * 60)
     
     async with httpx.AsyncClient(timeout=300.0) as client:
-        # 1. Check intract-orchestrator health
-        print("\n1️⃣  Checking intract-orchestrator health...")
+        # 1. Check app health
+        print("\n1️⃣  Checking app health...")
         try:
             response = await client.get(f"{INTRACT_URL}/health")
             health = response.json()
