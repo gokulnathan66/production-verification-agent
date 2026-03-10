@@ -9,6 +9,7 @@ import json
 import zipfile
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -61,16 +62,16 @@ a2a_client_provider = A2AClientToolProvider(
 
 
 @tool
-def run_full_verification(
+def prepare_workspace(
     s3_key: str,
     project_name: str,
     s3_bucket: str = None
 ) -> Dict[str, Any]:
-    """Run complete production verification workflow on code from S3.
+    """Download and prepare code workspace from S3 for analysis.
 
-    Downloads code from S3, extracts it to a workspace, coordinates all specialist
-    agents (code logic, research, validation), aggregates results, and uploads
-    back to S3.
+    Downloads code archive from S3, extracts it, and prepares it for analysis
+    by specialist agents. Returns workspace info and sample code for the agent
+    to analyze using specialist tools.
 
     Args:
         s3_key: S3 key of the code archive (zip file).
@@ -78,7 +79,7 @@ def run_full_verification(
         s3_bucket: Optional S3 bucket name (uses default if not provided).
 
     Returns:
-        Dictionary with task_id, status, results URL, and agent summaries.
+        Dictionary with task_id, workspace path, file list, and sample code for analysis.
     """
     if not s3_client:
         return {"error": "S3 client not available"}
@@ -87,7 +88,7 @@ def run_full_verification(
     workspace = f"/tmp/workspace/{task_id}"
     os.makedirs(workspace, exist_ok=True)
 
-    print(f"\n🚀 Starting verification workflow: {project_name}")
+    print(f"\n🚀 Preparing workspace: {project_name}")
     print(f"   Task ID: {task_id}")
     print(f"   Workspace: {workspace}")
 
@@ -105,66 +106,130 @@ def run_full_verification(
 
         # 3. Get file list for context
         files = []
+        python_files = []
         for root, dirs, filenames in os.walk(workspace):
             for filename in filenames:
                 rel_path = os.path.relpath(os.path.join(root, filename), workspace)
                 files.append(rel_path)
+                if filename.endswith('.py'):
+                    python_files.append(rel_path)
 
-        print(f"📁 Found {len(files)} files in workspace")
+        print(f"📁 Found {len(files)} files ({len(python_files)} Python files)")
 
         # 4. Read first Python file as sample
         sample_code = ""
-        for file in files:
-            if file.endswith('.py'):
-                try:
-                    with open(f"{workspace}/{file}", 'r') as f:
-                        sample_code = f.read()
+        sample_file = None
+        for file in python_files[:1]:  # Get first Python file
+            try:
+                with open(f"{workspace}/{file}", 'r', encoding='utf-8') as f:
+                    sample_code = f.read()
+                    sample_file = file
                     break
-                except:
-                    pass
+            except:
+                pass
 
-        # The orchestrator agent will coordinate the specialist agents
-        # via the Gemini model's function calling capabilities
-        results = {
+        print(f"✅ Workspace prepared! Sample file: {sample_file}")
+
+        return {
             "task_id": task_id,
             "project_name": project_name,
             "workspace": workspace,
             "files_count": len(files),
-            "sample_analyzed": len(sample_code) > 0,
-            "status": "completed"
+            "python_files_count": len(python_files),
+            "python_files": python_files[:10],  # First 10 for reference
+            "sample_file": sample_file,
+            "sample_code": sample_code[:2000] if sample_code else "",  # First 2000 chars
+            "status": "workspace_ready",
+            "next_step": "Use specialist agents (code_logic_agent, research_agent, validation_agent) to analyze the code, then call finalize_results"
         }
 
-        # 5. Upload results to S3
+    except Exception as e:
+        print(f"❌ Workspace preparation failed: {e}")
+        # Cleanup on error
+        try:
+            shutil.rmtree(workspace, ignore_errors=True)
+        except:
+            pass
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@tool
+def finalize_results(
+    task_id: str,
+    project_name: str,
+    workspace: str,
+    analysis_results: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Finalize verification results and upload to S3.
+
+    Aggregates all specialist agent results, creates final report, uploads to S3,
+    and cleans up the workspace.
+
+    Args:
+        task_id: Task identifier from prepare_workspace.
+        project_name: Name of the project.
+        workspace: Workspace path from prepare_workspace.
+        analysis_results: Dictionary containing results from all specialist agents.
+
+    Returns:
+        Dictionary with final status, results URL, and summary.
+    """
+    if not s3_client:
+        return {"error": "S3 client not available"}
+
+    print(f"\n📊 Finalizing results for: {project_name}")
+    print(f"   Task ID: {task_id}")
+
+    try:
+        # Create comprehensive results
+        final_results = {
+            "task_id": task_id,
+            "project_name": project_name,
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "completed",
+            "analysis": analysis_results
+        }
+
+        # Upload results to S3
         print(f"📤 Uploading results to S3...")
         results_file = f"{workspace}/verification_results.json"
         with open(results_file, 'w') as f:
-            json.dump(results, f, indent=2)
+            json.dump(final_results, f, indent=2)
 
         result_s3_key = f"results/{task_id}/verification_results.json"
         results_url = s3_client.upload_file(results_file, result_s3_key)
 
-        results["results_url"] = results_url
-        results["results_s3_key"] = result_s3_key
+        print(f"✅ Results uploaded to S3")
 
-        print(f"✅ Verification complete!")
-
-        return results
-
-    except Exception as e:
-        print(f"❌ Verification failed: {e}")
-        return {
-            "task_id": task_id,
-            "status": "error",
-            "error": str(e),
-            "workspace": workspace
-        }
-
-    finally:
+        # Cleanup workspace
         print(f"🧹 Cleaning up workspace...")
         try:
             shutil.rmtree(workspace, ignore_errors=True)
         except:
             pass
+
+        return {
+            "task_id": task_id,
+            "project_name": project_name,
+            "status": "completed",
+            "results_url": results_url,
+            "results_s3_key": result_s3_key,
+            "summary": {
+                "agents_used": list(analysis_results.keys()),
+                "total_checks": len(analysis_results)
+            }
+        }
+
+    except Exception as e:
+        print(f"❌ Finalization failed: {e}")
+        return {
+            "task_id": task_id,
+            "status": "error",
+            "error": str(e)
+        }
 
 
 @tool
@@ -230,7 +295,8 @@ Always start with code_logic_agent for structural analysis, then use research_ag
 
 # Combine local tools with A2A client tools
 all_tools = [
-    run_full_verification,
+    prepare_workspace,
+    finalize_results,
     analyze_code_sample,
     get_agent_status,
 ] + a2a_client_provider.tools
@@ -242,8 +308,15 @@ root_agent = Agent(
     tools=all_tools,
 )
 
-# Wrap as A2A server
-a2a_server = A2AServer(root_agent, host="0.0.0.0", port=PORT)
+# Wrap as A2A server with compliant streaming
+# Use explicit http_url with container hostname for Docker networking
+a2a_server = A2AServer(
+    root_agent,
+    host="0.0.0.0",
+    port=PORT,
+    http_url=f"http://orchestrator-agent:{PORT}",
+    enable_a2a_compliant_streaming=True
+)
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
 

@@ -33,6 +33,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    volumes:
+      - workspace-data:/tmp/workspace:ro  # Read-only access to shared workspace
     networks:
       - a2a-network
 
@@ -50,6 +52,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    volumes:
+      - workspace-data:/tmp/workspace:ro  # Read-only access to shared workspace
     networks:
       - a2a-network
 
@@ -67,6 +71,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    volumes:
+      - workspace-data:/tmp/workspace:ro  # Read-only access to shared workspace
     networks:
       - a2a-network
 
@@ -84,6 +90,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    volumes:
+      - workspace-data:/tmp/workspace:ro  # Read-only access to shared workspace
     networks:
       - a2a-network
 
@@ -107,6 +115,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    volumes:
+      - workspace-data:/tmp/workspace:rw  # Read-write access for orchestrator
     depends_on:
       - code-logic-agent
       - research-agent
@@ -150,3 +160,4 @@ networks:
 
 volumes:
   postgres-data:
+  workspace-data:  # Shared workspace for code analysis across all agents

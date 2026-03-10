@@ -158,6 +158,8 @@ async def list_artifacts(limit: int = 10):
         for artifact in artifacts:
             # Extract filename from key
             artifact['filename'] = artifact['key'].split('/')[-1]
+            # Add s3_key field for consistency with upload endpoint
+            artifact['s3_key'] = artifact['key']
             # Add uploaded_at field
             artifact['uploaded_at'] = artifact.get('last_modified', datetime.utcnow().isoformat())
         

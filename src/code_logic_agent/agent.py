@@ -319,7 +319,14 @@ root_agent = Agent(
 )
 
 # Wrap as A2A server (auto-generates Agent Card at /.well-known/agent-card.json)
-a2a_server = A2AServer(root_agent, host="0.0.0.0", port=PORT)
+# Use explicit http_url with container hostname for Docker networking
+a2a_server = A2AServer(
+    root_agent,
+    host="0.0.0.0",
+    port=PORT,
+    http_url=f"http://code-logic-agent:{PORT}",
+    enable_a2a_compliant_streaming=True
+)
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
 

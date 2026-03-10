@@ -312,8 +312,15 @@ root_agent = Agent(
     ],
 )
 
-# Wrap as A2A server
-a2a_server = A2AServer(root_agent, host="0.0.0.0", port=PORT)
+# Wrap as A2A server with compliant streaming
+# Use explicit http_url with container hostname for Docker networking
+a2a_server = A2AServer(
+    root_agent,
+    host="0.0.0.0",
+    port=PORT,
+    http_url=f"http://research-agent:{PORT}",
+    enable_a2a_compliant_streaming=True
+)
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
 
