@@ -114,6 +114,12 @@ services:
       - validation-agent
     networks:
       - a2a-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/.well-known/agent-card.json || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   app:
     build:
@@ -123,6 +129,7 @@ services:
       - "8006:8006"
     environment:
       - PORT=8006
+      - ORCHESTRATOR_URL=http://orchestrator-agent:8000
       - DATABASE_URL=postgresql://a2a_user:a2a_password@postgres:5432/a2a_dashboard
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - AWS_REGION=${AWS_REGION}
@@ -133,7 +140,7 @@ services:
       postgres:
         condition: service_healthy
       orchestrator-agent:
-        condition: service_started
+        condition: service_healthy
     networks:
       - a2a-network
 

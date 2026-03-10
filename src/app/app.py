@@ -188,48 +188,106 @@ async def trigger_verification(
     The orchestrator handles everything else
     """
     request_id = str(uuid.uuid4())
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{ORCHESTRATOR_URL}/a2a",
-                json={
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "method": "a2a.createTask",
-                    "params": {
-                        "message": {
-                            "role": "user",
-                            "parts": [
-                                {
-                                    "kind": "data",
-                                    "data": {
-                                        "project_artifact": s3_key,
-                                        "project_name": project_name
-                                    }
-                                }
-                            ]
+
+    print(f"🔥 Trigger verification request:")
+    print(f"   S3 Key: {s3_key}")
+    print(f"   Project: {project_name}")
+    print(f"   Orchestrator URL: {ORCHESTRATOR_URL}")
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "a2a.createTask",
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [
+                    {
+                        "kind": "text",
+                        "text": f"Verify production code for project '{project_name}'"
+                    },
+                    {
+                        "kind": "data",
+                        "data": {
+                            "workflow": "verification",
+                            "s3_key": s3_key,
+                            "project_name": project_name,
+                            "s3_bucket": os.getenv("S3_BUCKET_NAME")
                         }
                     }
-                },
-                timeout=300.0
-            )
-            response.raise_for_status()
-            result = response.json()
-        
-        task_id = result.get("result", {}).get("taskId", f"task-{request_id}")
-        
-        return {
-            "status": "triggered",
-            "task_id": task_id,
-            "project_name": project_name,
-            "orchestrator": ORCHESTRATOR_URL
+                ]
+            }
         }
-    
-    except httpx.HTTPError as e:
+    }
+
+    print(f"📤 Sending to orchestrator: {json.dumps(payload, indent=2)}")
+
+    # Try multiple endpoints (Google ADK might use /a2a or /)
+    endpoints = [
+        f"{ORCHESTRATOR_URL}/a2a",
+        f"{ORCHESTRATOR_URL}/",
+    ]
+
+    last_error = None
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        for endpoint in endpoints:
+            try:
+                print(f"📍 Trying endpoint: {endpoint}")
+
+                response = await client.post(
+                    endpoint,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+
+                print(f"📥 Response status: {response.status_code}")
+
+                if response.status_code == 404:
+                    print(f"   ⚠️  404 - trying next endpoint...")
+                    continue
+
+                print(f"📥 Response body: {response.text[:500]}")
+                response.raise_for_status()
+
+                result = response.json()
+                task_id = result.get("result", {}).get("taskId", f"task-{request_id}")
+
+                print(f"✅ Task created: {task_id}")
+
+                return {
+                    "status": "triggered",
+                    "task_id": task_id,
+                    "project_name": project_name,
+                    "orchestrator": ORCHESTRATOR_URL,
+                    "endpoint_used": endpoint
+                }
+
+            except httpx.ConnectError as e:
+                print(f"❌ Connection Error to {endpoint}: {str(e)}")
+                last_error = e
+                continue
+            except httpx.HTTPError as e:
+                print(f"❌ HTTP Error for {endpoint}: {str(e)}")
+                if hasattr(e, 'response') and e.response:
+                    print(f"   Response: {e.response.text[:200]}")
+                last_error = e
+                continue
+
+    # If we got here, all endpoints failed
+    error_msg = f"All orchestrator endpoints failed. Last error: {str(last_error)}"
+    print(f"❌ {error_msg}")
+    raise HTTPException(
+        status_code=503,
+        detail=error_msg
+    )
+    except Exception as e:
+        print(f"❌ Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to trigger orchestrator: {str(e)}"
+            detail=f"Unexpected error: {str(e)}"
         )
 
 

@@ -1,5 +1,5 @@
 """
-Code Logic Agent - Official A2A SDK compliant
+Code Logic Agent - Strands Agents compliant
 Performs AST analysis, code complexity metrics, and code quality assessment
 """
 
@@ -8,288 +8,322 @@ import os
 import re
 from typing import Any, Dict, List
 
-import uvicorn
-from a2a.server.agent_execution import AgentExecutor, RequestContext
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
-from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
-    DataPart,
-    Part,
-    TextPart,
-)
+from strands import Agent, tool
+from strands.multiagent.a2a import A2AServer
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
-AGENT_ID = os.getenv("AGENT_ID", "code-logic-agent")
-PORT     = int(os.getenv("PORT", "8001"))
-HOST     = os.getenv("HOST", "localhost")
+PORT = int(os.getenv("PORT", "8001"))
 
-# ─── Agent Card ────────────────────────────────────────────────────────────────
+# ─── Code Analysis Tools ───────────────────────────────────────────────────────
 
-agent_card = AgentCard(
-    name="Code Logic Analysis Agent",
-    description="Performs AST parsing, complexity analysis, code quality metrics, and structural analysis",
-    url=f"http://{HOST}:{PORT}/",
-    version="1.0.0",
-    defaultInputModes=["text"],
-    defaultOutputModes=["text", "data"],
-    capabilities=AgentCapabilities(streaming=False),
-    skills=[
-        AgentSkill(
-            id="code_analysis",
-            name="Code Analysis",
-            description="Full structural analysis of source code",
-            tags=["analysis", "ast", "metrics"],
-            examples=["Analyze this Python file for quality issues"],
-        ),
-        AgentSkill(
-            id="ast_parsing",
-            name="AST Parsing",
-            description="Parse Python source into AST and extract structure",
-            tags=["ast", "python"],
-            examples=["Extract all function definitions from this code"],
-        ),
-        AgentSkill(
-            id="complexity_metrics",
-            name="Complexity Metrics",
-            description="Cyclomatic complexity and structural complexity scoring",
-            tags=["complexity", "metrics"],
-            examples=["What is the complexity of this module?"],
-        ),
-        AgentSkill(
-            id="code_quality",
-            name="Code Quality",
-            description="Quality score based on docstrings, size, and modularity",
-            tags=["quality", "docstrings"],
-            examples=["Rate the quality of this code"],
-        ),
-        AgentSkill(
-            id="function_extraction",
-            name="Function Extraction",
-            description="List all functions with signatures and docstrings",
-            tags=["functions", "signatures"],
-            examples=["List all functions in this file"],
-        ),
-        AgentSkill(
-            id="dependency_analysis",
-            name="Dependency Analysis",
-            description="Extract all imports and third-party dependencies",
-            tags=["imports", "dependencies"],
-            examples=["What dependencies does this code use?"],
-        ),
+
+@tool
+def analyze_python_code(code: str) -> Dict[str, Any]:
+    """Perform comprehensive Python code analysis using AST parsing.
+
+    Analyzes code structure, complexity, quality metrics, and extracts:
+    - Functions with signatures and docstrings
+    - Classes with method counts
+    - Import dependencies
+    - Cyclomatic complexity estimation
+    - Code quality score based on documentation and structure
+
+    Args:
+        code: Python source code as a string.
+
+    Returns:
+        Dictionary containing metrics, functions, classes, imports, complexity rating, and quality score.
+    """
+    try:
+        tree = ast.parse(code)
+
+        functions: List[Dict] = []
+        classes: List[Dict] = []
+        imports: List[str] = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                functions.append({
+                    "name": node.name,
+                    "line": node.lineno,
+                    "args": len(node.args.args),
+                    "docstring": ast.get_docstring(node) or "No docstring",
+                })
+            elif isinstance(node, ast.ClassDef):
+                classes.append({
+                    "name": node.name,
+                    "line": node.lineno,
+                    "methods": len([
+                        n for n in node.body
+                        if isinstance(n, ast.FunctionDef)
+                    ]),
+                })
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+
+        lines = code.split("\n")
+        total_lines = len(lines)
+        code_lines = len([
+            l for l in lines
+            if l.strip() and not l.strip().startswith("#")
+        ])
+
+        complexity = _calculate_complexity(len(functions), len(classes))
+        quality_score = _calculate_quality_score(functions, code_lines)
+
+        return {
+            "language": "python",
+            "metrics": {
+                "total_lines": total_lines,
+                "code_lines": code_lines,
+                "functions": len(functions),
+                "classes": len(classes),
+                "imports": len(set(imports)),
+            },
+            "functions": functions,
+            "classes": classes,
+            "imports": sorted(set(imports)),
+            "complexity": complexity,
+            "quality_score": quality_score,
+        }
+
+    except SyntaxError as e:
+        return {"error": f"Syntax error: {e}", "language": "python"}
+
+
+@tool
+def analyze_generic_code(code: str, language: str = "unknown") -> Dict[str, Any]:
+    """Analyze code in non-Python languages using regex patterns.
+
+    Provides basic metrics for JavaScript, Java, C++, and other languages.
+    Detects functions/methods and classes using common syntax patterns.
+
+    Args:
+        code: Source code as a string.
+        language: Programming language identifier (e.g., 'javascript', 'java').
+
+    Returns:
+        Dictionary with basic metrics and complexity estimate.
+    """
+    lines = code.split("\n")
+    functions = len(re.findall(
+        r"function\s+\w+|def\s+\w+|public\s+\w+\s+\w+\(", code
+    ))
+    classes = len(re.findall(r"class\s+\w+", code))
+
+    return {
+        "language": language,
+        "metrics": {
+            "total_lines": len(lines),
+            "code_lines": len([l for l in lines if l.strip()]),
+            "functions": functions,
+            "classes": classes,
+        },
+        "complexity": "medium" if functions > 10 else "low",
+        "note": "Generic analysis — install a language-specific parser for detailed results",
+    }
+
+
+@tool
+def extract_functions(code: str) -> List[Dict[str, Any]]:
+    """Extract all function definitions from Python code.
+
+    Args:
+        code: Python source code as a string.
+
+    Returns:
+        List of dictionaries with function name, line number, argument count, and docstring.
+    """
+    try:
+        tree = ast.parse(code)
+        functions = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                functions.append({
+                    "name": node.name,
+                    "line": node.lineno,
+                    "args": len(node.args.args),
+                    "docstring": ast.get_docstring(node) or "No docstring",
+                })
+
+        return functions
+    except SyntaxError as e:
+        return [{"error": f"Syntax error: {e}"}]
+
+
+@tool
+def calculate_complexity(code: str) -> Dict[str, Any]:
+    """Calculate cyclomatic complexity metrics for Python code.
+
+    Estimates complexity based on number of functions, classes, and control flow.
+
+    Args:
+        code: Python source code as a string.
+
+    Returns:
+        Dictionary with complexity rating (low/medium/high) and contributing factors.
+    """
+    try:
+        tree = ast.parse(code)
+
+        functions = sum(1 for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+        classes = sum(1 for node in ast.walk(tree) if isinstance(node, ast.ClassDef))
+
+        complexity_score = functions + (classes * 2)
+
+        if complexity_score < 10:
+            rating = "low"
+        elif complexity_score < 30:
+            rating = "medium"
+        else:
+            rating = "high"
+
+        return {
+            "rating": rating,
+            "score": complexity_score,
+            "functions": functions,
+            "classes": classes,
+        }
+    except SyntaxError as e:
+        return {"error": f"Syntax error: {e}"}
+
+
+@tool
+def assess_code_quality(code: str) -> Dict[str, Any]:
+    """Assess Python code quality based on documentation and structure.
+
+    Evaluates:
+    - Documentation coverage (docstrings)
+    - Code size and modularity
+    - Function count and organization
+
+    Args:
+        code: Python source code as a string.
+
+    Returns:
+        Dictionary with quality score (0-100) and breakdown of factors.
+    """
+    try:
+        tree = ast.parse(code)
+
+        functions = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                functions.append({
+                    "name": node.name,
+                    "has_docstring": ast.get_docstring(node) is not None,
+                })
+
+        lines = code.split("\n")
+        code_lines = len([l for l in lines if l.strip() and not l.strip().startswith("#")])
+
+        score = 100.0
+        issues = []
+
+        if functions:
+            missing_docs = sum(1 for f in functions if not f["has_docstring"])
+            doc_penalty = (missing_docs / len(functions)) * 20
+            score -= doc_penalty
+            if missing_docs > 0:
+                issues.append(f"{missing_docs}/{len(functions)} functions missing docstrings")
+
+        if code_lines > 500:
+            score -= 10
+            issues.append("File exceeds 500 lines of code")
+
+        if len(functions) > 20:
+            score -= 15
+            issues.append("Too many functions (>20) - consider splitting module")
+
+        return {
+            "score": max(0.0, round(score, 2)),
+            "total_functions": len(functions),
+            "documented_functions": sum(1 for f in functions if f["has_docstring"]),
+            "code_lines": code_lines,
+            "issues": issues,
+        }
+    except SyntaxError as e:
+        return {"error": f"Syntax error: {e}"}
+
+
+@tool
+def extract_dependencies(code: str) -> List[str]:
+    """Extract all import statements and dependencies from Python code.
+
+    Args:
+        code: Python source code as a string.
+
+    Returns:
+        Sorted list of unique module names imported.
+    """
+    try:
+        tree = ast.parse(code)
+        imports = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+
+        return sorted(set(imports))
+    except SyntaxError as e:
+        return [f"Syntax error: {e}"]
+
+
+# ─── Helper Functions ──────────────────────────────────────────────────────────
+
+
+def _calculate_complexity(functions: int, classes: int) -> str:
+    """Internal helper to calculate complexity rating."""
+    score = functions + (classes * 2)
+    if score < 10:
+        return "low"
+    elif score < 30:
+        return "medium"
+    return "high"
+
+
+def _calculate_quality_score(functions: List[Dict], code_lines: int) -> float:
+    """Internal helper to calculate quality score."""
+    score = 100.0
+    if functions:
+        missing_docs = sum(1 for f in functions if f["docstring"] == "No docstring")
+        score -= (missing_docs / len(functions)) * 20
+    if code_lines > 500:
+        score -= 10
+    if len(functions) > 20:
+        score -= 15
+    return max(0.0, round(score, 2))
+
+
+# ─── Agent Definition ──────────────────────────────────────────────────────────
+
+root_agent = Agent(
+    name='code_logic_agent',
+    description='Analyzes code structure, logic, and architecture. Performs AST parsing, complexity analysis, quality metrics, and structural analysis for Python and other languages.',
+    tools=[
+        analyze_python_code,
+        analyze_generic_code,
+        extract_functions,
+        calculate_complexity,
+        assess_code_quality,
+        extract_dependencies,
     ],
 )
 
-# ─── CodeAnalyzer ──────────────────────────────────────────────────────────────
+# Wrap as A2A server (auto-generates Agent Card at /.well-known/agent-card.json)
+a2a_server = A2AServer(root_agent, host="0.0.0.0", port=PORT)
 
-class CodeAnalyzer:
-    """AST-based code analyzer with quality and complexity metrics"""
-
-    def analyze_python_code(self, code: str) -> Dict[str, Any]:
-        """Full Python analysis via AST"""
-        try:
-            tree = ast.parse(code)
-
-            functions: List[Dict] = []
-            classes: List[Dict] = []
-            imports: List[str] = []
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    functions.append({
-                        "name": node.name,
-                        "line": node.lineno,
-                        "args": len(node.args.args),
-                        "docstring": ast.get_docstring(node) or "No docstring",
-                    })
-                elif isinstance(node, ast.ClassDef):
-                    classes.append({
-                        "name": node.name,
-                        "line": node.lineno,
-                        "methods": len([
-                            n for n in node.body
-                            if isinstance(n, ast.FunctionDef)
-                        ]),
-                    })
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imports.append(alias.name)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    imports.append(node.module)
-
-            lines = code.split("\n")
-            total_lines = len(lines)
-            code_lines = len([
-                l for l in lines
-                if l.strip() and not l.strip().startswith("#")
-            ])
-
-            return {
-                "language": "python",
-                "metrics": {
-                    "total_lines": total_lines,
-                    "code_lines": code_lines,
-                    "functions": len(functions),
-                    "classes": len(classes),
-                    "imports": len(set(imports)),
-                },
-                "functions": functions,
-                "classes": classes,
-                "imports": sorted(set(imports)),
-                "complexity": self._calculate_complexity(len(functions), len(classes)),
-                "quality_score": self._calculate_quality_score(functions, code_lines),
-            }
-
-        except SyntaxError as e:
-            return {"error": f"Syntax error: {e}", "language": "python"}
-
-    def analyze_generic_code(self, code: str, language: str) -> Dict[str, Any]:
-        """Regex-based fallback for non-Python languages"""
-        lines = code.split("\n")
-        functions = len(re.findall(
-            r"function\s+\w+|def\s+\w+|public\s+\w+\s+\w+\(", code
-        ))
-        classes = len(re.findall(r"class\s+\w+", code))
-        return {
-            "language": language,
-            "metrics": {
-                "total_lines": len(lines),
-                "code_lines": len([l for l in lines if l.strip()]),
-                "functions": functions,
-                "classes": classes,
-            },
-            "complexity": "medium" if functions > 10 else "low",
-            "note": "Generic analysis — install a language-specific parser for detailed results",
-        }
-
-    def _calculate_complexity(self, functions: int, classes: int) -> str:
-        score = functions + (classes * 2)
-        if score < 10:
-            return "low"
-        elif score < 30:
-            return "medium"
-        return "high"
-
-    def _calculate_quality_score(self, functions: List[Dict], code_lines: int) -> float:
-        score = 100.0
-        if functions:
-            missing_docs = sum(1 for f in functions if f["docstring"] == "No docstring")
-            score -= (missing_docs / len(functions)) * 20
-        if code_lines > 500:
-            score -= 10
-        if len(functions) > 20:
-            score -= 15
-        return max(0.0, round(score, 2))
-
-
-# ─── Agent Executor ────────────────────────────────────────────────────────────
-
-analyzer = CodeAnalyzer()
-
-
-class CodeLogicAgentExecutor(AgentExecutor):
-    """
-    A2A executor — parses message parts, runs code analysis,
-    emits text + data artifacts back to the caller.
-    """
-
-    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
-        await updater.submit()
-        await updater.start_work()
-
-        try:
-            # ── Parse incoming parts ──────────────────────────────────────────
-            code_text = ""
-            language  = "python"
-
-            for part in context.message.parts:
-                if isinstance(part.root, TextPart):
-                    code_text += part.root.text
-                elif isinstance(part.root, DataPart):
-                    data: dict = part.root.data or {}
-                    language  = data.get("language", "python")
-                    code_text = data.get("code", code_text)
-
-            # ── Run analysis ──────────────────────────────────────────────────
-            analysis = (
-                analyzer.analyze_python_code(code_text)
-                if language == "python"
-                else analyzer.analyze_generic_code(code_text, language)
-            )
-
-            # ── Format human-readable result ──────────────────────────────────
-            if "error" in analysis:
-                result_text = f"❌ Error: {analysis['error']}"
-            else:
-                metrics = analysis.get("metrics", {})
-                result_text = (
-                    f"🔍 Code Analysis Results\n\n"
-                    f"Language: {analysis.get('language', 'unknown')}\n\n"
-                    f"📊 Metrics:\n"
-                    f"  • Total Lines  : {metrics.get('total_lines', 0)}\n"
-                    f"  • Code Lines   : {metrics.get('code_lines', 0)}\n"
-                    f"  • Functions    : {metrics.get('functions', 0)}\n"
-                    f"  • Classes      : {metrics.get('classes', 0)}\n"
-                    f"  • Imports      : {metrics.get('imports', 0)}\n"
-                )
-
-                if "complexity" in analysis:
-                    result_text += f"\n⚡ Complexity   : {analysis['complexity']}\n"
-
-                if "quality_score" in analysis:
-                    result_text += f"✨ Quality Score: {analysis['quality_score']}/100\n"
-
-                funcs = analysis.get("functions", [])
-                if funcs:
-                    result_text += "\n📦 Functions Found:\n"
-                    for func in funcs[:5]:
-                        result_text += (
-                            f"  • {func['name']} "
-                            f"(line {func['line']}, {func['args']} args)\n"
-                        )
-
-                if "note" in analysis:
-                    result_text += f"\n📝 Note: {analysis['note']}\n"
-
-            # ── Emit artifact ─────────────────────────────────────────────────
-            await updater.add_artifact(
-                parts=[
-                    Part(root=TextPart(text=result_text)),
-                    Part(root=DataPart(data=analysis)),
-                ],
-                name="code_analysis_results",
-            )
-            await updater.complete()
-
-        except Exception as exc:
-            await updater.failed(message=str(exc))
-
-    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        raise NotImplementedError("Cancel is not supported by this agent")
-
-
-# ─── App Bootstrap ─────────────────────────────────────────────────────────────
-
-def build_app():
-    handler = DefaultRequestHandler(
-        agent_executor=CodeLogicAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-    )
-    return A2AStarletteApplication(
-        agent_card=agent_card,
-        http_handler=handler,
-    ).build()
-
-
-app = build_app()
+# ─── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"🚀 Code Logic Agent  →  http://{HOST}:{PORT}/")
-    print(f"📄 Agent Card        →  http://{HOST}:{PORT}/.well-known/agent.json")
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    print(f"🚀 Code Logic Agent    →  http://localhost:{PORT}/")
+    print(f"📄 Agent Card          →  http://localhost:{PORT}/.well-known/agent-card.json")
+    a2a_server.serve()
