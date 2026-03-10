@@ -249,17 +249,97 @@ def _get_recommendation(security_result: Dict, quality_result: Dict, overall_sco
         return "⚠️  Review and address the identified issues before production deployment."
 
 
+@tool
+def validate_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any]:
+    """Validate all Python files in a workspace for security and quality issues.
+
+    Scans entire workspace for security vulnerabilities and quality issues across
+    all Python files, providing aggregate statistics and critical findings.
+
+    Args:
+        workspace_path: Path to workspace directory (e.g., /tmp/workspace/task-id).
+        max_files: Maximum number of files to validate (default: 20).
+
+    Returns:
+        Dictionary with workspace-wide security and quality validation results.
+    """
+    if not os.path.isdir(workspace_path):
+        return {"error": f"Workspace not found: {workspace_path}"}
+
+    python_files = []
+    for root, dirs, files in os.walk(workspace_path):
+        for file in files:
+            if file.endswith('.py'):
+                python_files.append(os.path.join(root, file))
+
+    if not python_files:
+        return {"error": "No Python files found in workspace"}
+
+    # Aggregate validation results
+    all_security_issues = []
+    all_quality_issues = []
+    total_security_score = 0
+    total_quality_score = 0
+    files_validated = 0
+
+    for filepath in python_files[:max_files]:
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                code = f.read()
+
+            validation = comprehensive_validation(code)
+
+            files_validated += 1
+            total_security_score += validation['scores']['security']
+            total_quality_score += validation['scores']['quality']
+
+            # Collect critical security issues
+            for issue in validation['security']['security_issues']:
+                issue['file'] = os.path.relpath(filepath, workspace_path)
+                all_security_issues.append(issue)
+
+            # Collect quality issues
+            for issue in validation['quality']['quality_issues']:
+                issue['file'] = os.path.relpath(filepath, workspace_path)
+                all_quality_issues.append(issue)
+
+        except Exception as e:
+            continue
+
+    avg_security_score = total_security_score / files_validated if files_validated > 0 else 0
+    avg_quality_score = total_quality_score / files_validated if files_validated > 0 else 0
+
+    return {
+        "workspace": workspace_path,
+        "total_python_files": len(python_files),
+        "validated_files": files_validated,
+        "aggregate_scores": {
+            "average_security_score": round(avg_security_score, 2),
+            "average_quality_score": round(avg_quality_score, 2),
+            "overall_score": round((avg_security_score + avg_quality_score) / 2, 2)
+        },
+        "critical_findings": {
+            "security_issues_count": len(all_security_issues),
+            "quality_issues_count": len(all_quality_issues),
+            "high_severity_security": [i for i in all_security_issues if i.get('severity') == 'high'][:10],
+        },
+        "production_ready": len(all_security_issues) == 0 and avg_quality_score >= 70,
+        "recommendation": "✅ Production ready" if len(all_security_issues) == 0 and avg_quality_score >= 70 else "⚠️ Address security and quality issues before deployment"
+    }
+
+
 # ─── Agent Definition ──────────────────────────────────────────────────────────
 
 root_agent = Agent(
     name='validation_agent',
-    description='Performs comprehensive security validation, code quality checks, and compliance verification. Detects vulnerabilities, hardcoded secrets, injection risks, and code quality issues.',
+    description='Performs comprehensive security validation, code quality checks, and compliance verification. Detects vulnerabilities, hardcoded secrets, injection risks, and code quality issues. Can validate individual files or entire workspace directories.',
     tools=[
         scan_security_vulnerabilities,
         check_code_quality,
         detect_risky_dependencies,
         comprehensive_validation,
         validate_production_readiness,
+        validate_workspace,
     ],
 )
 

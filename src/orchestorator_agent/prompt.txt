@@ -34,18 +34,23 @@ Returns: task_id, workspace, sample_code, file_list
 
 ### Step 2: Analyze Code (Call ALL specialist agents)
 
-**IMPORTANT:** You MUST call ALL three specialist agents with the sample code:
+**IMPORTANT:** You MUST call ALL three specialist agents with the WORKSPACE PATH:
 
 ```
 # Call code_logic_agent
-Send message: "Analyze this Python code structure and complexity: {sample_code}"
+Send message: "Analyze the entire workspace at: {workspace_path}
+Use the analyze_workspace tool to scan all Python files."
 
 # Call research_agent
-Send message: "Research this code for patterns, imports, and architecture: {sample_code}"
+Send message: "Research the codebase in workspace: {workspace_path}
+Use grep_search with directory={workspace_path} to find patterns across all files."
 
 # Call validation_agent
-Send message: "Validate this code for security and quality issues: {sample_code}"
+Send message: "Validate workspace security and quality: {workspace_path}
+Use the validate_workspace tool to check all files for issues."
 ```
+
+**Why workspace paths?** All agents have access to the shared /tmp/workspace volume, so they can read all 329 files directly instead of just analyzing sample code.
 
 Wait for each agent to complete and collect their results.
 

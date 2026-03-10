@@ -277,6 +277,80 @@ def extract_dependencies(code: str) -> List[str]:
         return [f"Syntax error: {e}"]
 
 
+@tool
+def analyze_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any]:
+    """Analyze all Python files in a workspace directory.
+
+    Scans workspace for Python files and provides aggregate analysis across
+    the entire codebase including total metrics, common patterns, and issues.
+
+    Args:
+        workspace_path: Path to workspace directory (e.g., /tmp/workspace/task-id).
+        max_files: Maximum number of files to analyze in detail (default: 20).
+
+    Returns:
+        Dictionary with workspace-wide metrics and per-file analysis summary.
+    """
+    if not os.path.isdir(workspace_path):
+        return {"error": f"Workspace not found: {workspace_path}"}
+
+    python_files = []
+    for root, dirs, files in os.walk(workspace_path):
+        for file in files:
+            if file.endswith('.py'):
+                python_files.append(os.path.join(root, file))
+
+    if not python_files:
+        return {"error": "No Python files found in workspace"}
+
+    # Aggregate metrics
+    total_functions = 0
+    total_classes = 0
+    total_lines = 0
+    all_imports = set()
+    file_analyses = []
+
+    for idx, filepath in enumerate(python_files[:max_files]):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                code = f.read()
+
+            result = analyze_python_code(code)
+
+            if 'error' not in result:
+                total_functions += result['metrics']['functions']
+                total_classes += result['metrics']['classes']
+                total_lines += result['metrics']['total_lines']
+                all_imports.update(result.get('imports', []))
+
+                file_analyses.append({
+                    "file": os.path.relpath(filepath, workspace_path),
+                    "functions": result['metrics']['functions'],
+                    "classes": result['metrics']['classes'],
+                    "lines": result['metrics']['total_lines'],
+                    "complexity": result.get('complexity', 'unknown'),
+                    "quality_score": result.get('quality_score', 0)
+                })
+        except Exception as e:
+            continue
+
+    return {
+        "workspace": workspace_path,
+        "total_python_files": len(python_files),
+        "analyzed_files": len(file_analyses),
+        "aggregate_metrics": {
+            "total_functions": total_functions,
+            "total_classes": total_classes,
+            "total_lines": total_lines,
+            "unique_imports": len(all_imports),
+            "average_file_size": total_lines // len(file_analyses) if file_analyses else 0
+        },
+        "top_imports": sorted(all_imports)[:20],
+        "file_summaries": file_analyses,
+        "recommendation": f"Analyzed {len(file_analyses)}/{len(python_files)} Python files with {total_functions} functions across {total_lines} lines of code"
+    }
+
+
 # ─── Helper Functions ──────────────────────────────────────────────────────────
 
 
@@ -307,7 +381,7 @@ def _calculate_quality_score(functions: List[Dict], code_lines: int) -> float:
 
 root_agent = Agent(
     name='code_logic_agent',
-    description='Analyzes code structure, logic, and architecture. Performs AST parsing, complexity analysis, quality metrics, and structural analysis for Python and other languages.',
+    description='Analyzes code structure, logic, and architecture. Performs AST parsing, complexity analysis, quality metrics, and structural analysis for Python and other languages. Can analyze individual files or entire workspace directories.',
     tools=[
         analyze_python_code,
         analyze_generic_code,
@@ -315,6 +389,7 @@ root_agent = Agent(
         calculate_complexity,
         assess_code_quality,
         extract_dependencies,
+        analyze_workspace,
     ],
 )
 
