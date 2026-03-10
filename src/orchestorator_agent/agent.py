@@ -136,11 +136,12 @@ def prepare_workspace(
             "workspace": workspace,
             "files_count": len(files),
             "python_files_count": len(python_files),
-            "python_files": python_files[:10],  # First 10 for reference
+            "python_files_sample": python_files[:5],  # Only 5 files
             "sample_file": sample_file,
-            "sample_code": sample_code[:2000] if sample_code else "",  # First 2000 chars
+            "sample_code_preview": sample_code[:500] if sample_code else "",  # Only 500 chars
             "status": "workspace_ready",
-            "next_step": "Use specialist agents (code_logic_agent, research_agent, validation_agent) to analyze the code, then call finalize_results"
+            "summary": f"Prepared workspace with {len(files)} files ({len(python_files)} Python files). Ready for analysis.",
+            "next_step": "Call specialist agents with workspace path to analyze ALL files"
         }
 
     except Exception as e:

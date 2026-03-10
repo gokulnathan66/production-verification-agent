@@ -278,7 +278,7 @@ def extract_dependencies(code: str) -> List[str]:
 
 
 @tool
-def analyze_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any]:
+def analyze_workspace(workspace_path: str, max_files: int = 10) -> Dict[str, Any]:
     """Analyze all Python files in a workspace directory.
 
     Scans workspace for Python files and provides aggregate analysis across
@@ -286,10 +286,10 @@ def analyze_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any
 
     Args:
         workspace_path: Path to workspace directory (e.g., /tmp/workspace/task-id).
-        max_files: Maximum number of files to analyze in detail (default: 20).
+        max_files: Maximum number of files to analyze in detail (default: 10).
 
     Returns:
-        Dictionary with workspace-wide metrics and per-file analysis summary.
+        Dictionary with workspace-wide metrics and summary (NOT full file details).
     """
     if not os.path.isdir(workspace_path):
         return {"error": f"Workspace not found: {workspace_path}"}
@@ -334,8 +334,19 @@ def analyze_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any
         except Exception as e:
             continue
 
+    # Calculate complexity distribution
+    complexity_counts = {"low": 0, "medium": 0, "high": 0}
+    quality_scores = []
+
+    for analysis in file_analyses:
+        complexity_counts[analysis.get("complexity", "unknown")] = complexity_counts.get(analysis.get("complexity", "unknown"), 0) + 1
+        if analysis.get("quality_score"):
+            quality_scores.append(analysis["quality_score"])
+
+    avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else 0
+
     return {
-        "workspace": workspace_path,
+        "workspace": workspace_path.split('/')[-1],  # Just task ID, not full path
         "total_python_files": len(python_files),
         "analyzed_files": len(file_analyses),
         "aggregate_metrics": {
@@ -343,11 +354,12 @@ def analyze_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any
             "total_classes": total_classes,
             "total_lines": total_lines,
             "unique_imports": len(all_imports),
-            "average_file_size": total_lines // len(file_analyses) if file_analyses else 0
+            "average_file_size": total_lines // len(file_analyses) if file_analyses else 0,
+            "average_quality_score": round(avg_quality, 2)
         },
-        "top_imports": sorted(all_imports)[:20],
-        "file_summaries": file_analyses,
-        "recommendation": f"Analyzed {len(file_analyses)}/{len(python_files)} Python files with {total_functions} functions across {total_lines} lines of code"
+        "complexity_distribution": complexity_counts,
+        "top_imports": sorted(all_imports)[:10],  # Only top 10
+        "summary": f"Analyzed {len(file_analyses)} files: {total_functions} functions, {total_classes} classes, {total_lines} LOC. Avg quality: {avg_quality:.1f}/100"
     }
 
 

@@ -250,7 +250,7 @@ def _get_recommendation(security_result: Dict, quality_result: Dict, overall_sco
 
 
 @tool
-def validate_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, Any]:
+def validate_workspace(workspace_path: str, max_files: int = 10) -> Dict[str, Any]:
     """Validate all Python files in a workspace for security and quality issues.
 
     Scans entire workspace for security vulnerabilities and quality issues across
@@ -258,10 +258,10 @@ def validate_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, An
 
     Args:
         workspace_path: Path to workspace directory (e.g., /tmp/workspace/task-id).
-        max_files: Maximum number of files to validate (default: 20).
+        max_files: Maximum number of files to validate (default: 10).
 
     Returns:
-        Dictionary with workspace-wide security and quality validation results.
+        Dictionary with concise workspace-wide validation summary (NOT all issues).
     """
     if not os.path.isdir(workspace_path):
         return {"error": f"Workspace not found: {workspace_path}"}
@@ -309,22 +309,32 @@ def validate_workspace(workspace_path: str, max_files: int = 20) -> Dict[str, An
     avg_security_score = total_security_score / files_validated if files_validated > 0 else 0
     avg_quality_score = total_quality_score / files_validated if files_validated > 0 else 0
 
+    # Get only high severity security issues (limit to 5)
+    high_severity = [i for i in all_security_issues if i.get('severity') == 'high'][:5]
+
+    # Categorize security issues
+    security_categories = {}
+    for issue in all_security_issues:
+        category = issue.get('category', 'unknown')
+        security_categories[category] = security_categories.get(category, 0) + 1
+
     return {
-        "workspace": workspace_path,
+        "workspace": workspace_path.split('/')[-1],  # Just task ID
         "total_python_files": len(python_files),
         "validated_files": files_validated,
-        "aggregate_scores": {
-            "average_security_score": round(avg_security_score, 2),
-            "average_quality_score": round(avg_quality_score, 2),
-            "overall_score": round((avg_security_score + avg_quality_score) / 2, 2)
+        "scores": {
+            "security": round(avg_security_score, 2),
+            "quality": round(avg_quality_score, 2),
+            "overall": round((avg_security_score + avg_quality_score) / 2, 2)
         },
-        "critical_findings": {
-            "security_issues_count": len(all_security_issues),
-            "quality_issues_count": len(all_quality_issues),
-            "high_severity_security": [i for i in all_security_issues if i.get('severity') == 'high'][:10],
+        "issues_summary": {
+            "total_security_issues": len(all_security_issues),
+            "total_quality_issues": len(all_quality_issues),
+            "security_by_category": security_categories,
+            "critical_security_samples": [f"{i.get('category')}: {i.get('description')}" for i in high_severity]
         },
         "production_ready": len(all_security_issues) == 0 and avg_quality_score >= 70,
-        "recommendation": "✅ Production ready" if len(all_security_issues) == 0 and avg_quality_score >= 70 else "⚠️ Address security and quality issues before deployment"
+        "summary": f"Validated {files_validated} files. Security: {avg_security_score:.1f}/100 ({len(all_security_issues)} issues). Quality: {avg_quality_score:.1f}/100. {'✅ Production ready' if len(all_security_issues) == 0 and avg_quality_score >= 70 else '⚠️ Needs work'}"
     }
 
 

@@ -83,26 +83,26 @@ Your response:
 
 ## Communication with Agents
 
-When calling specialist agents, provide BOTH the workspace path AND sample code:
+**IMPORTANT: Keep messages CONCISE to avoid context window issues**
+
+When calling specialist agents, send SHORT messages with just the workspace path:
 
 **Message format:**
 ```
-Analyze the code in workspace: /tmp/workspace/{task_id}
-
+Analyze workspace: /tmp/workspace/{task_id}
 Project: {project_name}
-Files: {python_files}
-Sample code from {sample_file}:
-
-{sample_code}
-
-Please analyze the full workspace, not just the sample.
+Python files: {count}
 ```
 
-This way agents can:
-- Access all 329 files in the workspace via shared Docker volume
-- Use the sample code for quick inspection
-- Run grep/searches across the entire codebase
-- Generate comprehensive reports
+**DO NOT include:**
+- ❌ Full file lists (use counts instead)
+- ❌ Sample code (agents will read files directly)
+- ❌ Verbose instructions
+
+Agents have shared volume access and will:
+- Read all files directly from workspace
+- Return concise summaries (not detailed per-file data)
+- Aggregate metrics across entire codebase
 
 ## Your Personality
 
