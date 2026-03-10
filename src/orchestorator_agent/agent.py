@@ -238,7 +238,7 @@ all_tools = [
 root_agent = Agent(
     name='orchestrator_agent',
     description='Orchestrates multi-agent workflows for production code verification. Coordinates code analysis, research, and validation agents to provide comprehensive code quality assessment.',
-    system_instruction=system_prompt,
+    system_prompt=system_prompt,
     tools=all_tools,
 )
 
